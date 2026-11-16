@@ -11,7 +11,7 @@ Describe what you are looking for. Find the file, even when you do not remember 
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
 </p>
 
-<p align="center"><a href="../../releases/latest"><b>Download for macOS</b></a></p>
+<p align="center"><a href="https://github.com/jaak-ko/semantic-spotlight/releases/latest"><b>Download for macOS</b></a></p>
 
 ---
 
