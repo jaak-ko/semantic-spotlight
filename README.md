@@ -2,59 +2,78 @@
 
 <h1 align="center">Semantic Spotlight</h1>
 
-**Find your files by what they mean, not by what you named them.**
+<p align="center"><b>Private, on-device semantic search for the files on your Mac.</b><br>
+Describe what you are looking for. Find the file, even when you do not remember its name.</p>
 
-You remember writing something about "the municipality data pipeline migration". You do
-not remember that the file is called `notes_final_v3_REAL.md`. Semantic Spotlight does
-the remembering: press **Option+Space**, describe the thing, get the file.
+<p align="center">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-blue">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-blue">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+</p>
 
-It runs entirely on your Mac. No cloud, no account, no telemetry. Your files are read,
-never changed, and their contents never leave the machine. (The only network request
-the product ever makes is a one-time model download that you start by clicking a button.)
+<p align="center"><a href="../../releases/latest"><b>Download for macOS</b></a></p>
 
-## What it does
+---
 
-- **Searches by meaning, in Finnish and English.** A query is matched against the
-  *content* of your files, so it finds the note even when no words are shared.
-  Finnish gets its own treatment (stemming), because `kardemummapullan` should find
-  `kardemummapulla`, as any Finn would expect.
-- **Still handles exact terms.** Hybrid ranking mixes vector similarity with SQLite
-  FTS5 keyword search (reciprocal rank fusion), so IDs and error codes such as
-  `ERR-40417` are found the boring, reliable way.
-- **Finds files by name.** File names are searched too, so `Thomas Sowell` finds
-  `Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt` even when its text never says the name.
-- **Finds half-typed names.** The last word may be unfinished: `thomas sow` finds the file while you type.
-- **Knows when it has nothing.** Results below a similarity floor are dropped, so a
-  query about lasagna in a folder of tax notes returns nothing instead of eight
-  confident guesses.
-- **Stays current.** Re-indexing skips unchanged files (mtime and content hash) and
-  removes deleted ones. The app watches your folders and updates on its own.
-- **Reads** `.txt .md .rst .rtf .csv .json .log` and common source code. It skips
-  `.git`, `node_modules`, virtual environments, hidden files, binaries and text files
-  over 1 MB.
-- **Reads images, too.** Screenshots, scans and photos of documents (`.png .jpg .jpeg
-  .heic .tiff .gif .bmp .webp`) are searched by the text inside them. Recognition uses
-  the Vision framework built into macOS, so it is on-device like everything else.
-  A picture with no text in it (your holiday snaps) is found by its file name only, for example
-  `Holiday Rome 2024.jpg`; searching by what a photo *shows* is not supported. Finnish is not on Vision's official language
-  list, so the engine reads it with the Swedish model, which handles ä and ö. On my
-  test images that gave 1.00 character accuracy on clean text and 0.99 on a blurred
-  phone-style photo. Handwriting and tiny print are untested and likely weaker.
-  PDF and DOCX are not supported yet.
+## Overview
+
+Semantic Spotlight is a menu-bar app with a global search panel (**Option+Space**). It
+indexes the folders you choose and ranks files by meaning, by exact terms, and by file
+name. Searching for "the municipality data pipeline migration" finds the note even when it
+is saved as `notes_final_v3.md` and never uses those words.
+
+Everything runs locally. There is no account, no cloud service and no telemetry. Files are
+read and never modified, and their contents never leave the machine. The only network
+request the product makes is a one-time download of the language model, which starts only
+when you click the button for it.
+
+## Features
+
+- **Semantic search in Finnish and English.** Queries are matched against file content by
+  meaning. Finnish text is stemmed, so `kardemummapullan` finds `kardemummapulla`.
+- **Exact-term search.** Hybrid ranking combines vector similarity with SQLite FTS5
+  keyword search (reciprocal rank fusion), so identifiers and error codes such as
+  `ERR-40417` are found reliably.
+- **File-name search.** Names are indexed too. `Thomas Sowell` finds
+  `Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt`, and the last word may be unfinished
+  (`thomas sow`).
+- **Image text (OCR).** Screenshots, scans and photos of documents are searched by the text
+  inside them, using the Vision framework built into macOS. Images without text are found
+  by file name only.
+- **No false confidence.** Results below a similarity threshold are dropped, so a query
+  with no real match returns nothing instead of weak guesses.
+- **Always current.** The app watches your folders and re-indexes changes. Unchanged files
+  are skipped using modification time and a content hash; deleted files are removed.
+- **Keyboard first.** Open, reveal in Finder and Quick Look without leaving the keyboard.
+
+### Supported content
+
+| Type | Extensions |
+| --- | --- |
+| Text and code | `.txt` `.md` `.rst` `.rtf` `.csv` `.json` `.log` and common source files |
+| Images (OCR) | `.png` `.jpg` `.jpeg` `.heic` `.tiff` `.gif` `.bmp` `.webp` |
+
+`.git`, `node_modules`, virtual environments, hidden files, binaries and text files over
+1 MB are skipped. PDF and DOCX are not supported yet.
+
+Finnish is not on Vision's official language list, so the engine reads Finnish images with
+the Swedish model, which covers `ä` and `ö`. On the project's test images this gave 1.00
+character accuracy on clean text and 0.99 on a blurred phone-style photo. Handwriting and
+very small print have not been tested.
 
 ## Install
 
-### The easy way (Apple Silicon, macOS 14+)
+**Requirements:** Apple Silicon Mac, macOS 14 or later.
 
-1. Download `SemanticSpotlight.dmg` from the **Releases** page of this repository.
-2. Drag the app to **Applications**.
-3. Right-click it, choose **Open**, and confirm once. (It is ad-hoc signed, not
-   notarized, so macOS asks before trusting it. That is the price of not having a
-   paid Apple developer account.)
-4. In the welcome window, click **Download language model** (about 470 MB, once), pick
-   a folder, and wait for the checkmark.
+1. Download `SemanticSpotlight.dmg` from the [latest release](https://github.com/jaak-ko/semantic-spotlight/releases/latest).
+2. Drag **Semantic Spotlight** to **Applications**.
+3. Right-click the app, choose **Open**, and confirm once. The app is ad-hoc signed and not
+   notarized, so macOS asks before trusting it the first time.
+4. In the welcome window, click **Download language model** (about 470 MB, once), choose a
+   folder, and wait for indexing to finish.
 
-Then press **Option+Space** from anywhere.
+Press **Option+Space** from anywhere to search. Folders and launch at login
+are managed in **Settings**.
 
 | Key | Action |
 | --- | --- |
@@ -64,9 +83,88 @@ Then press **Option+Space** from anywhere.
 | Tab, then Space | Quick Look preview |
 | Esc | Dismiss |
 
-### From source
+## Privacy and security
 
-You need an Apple Silicon Mac, Python 3.12+ and the Xcode Command Line Tools.
+- **Local only.** The index, the model and all caches live under `~/.semsearch`. The
+  folder is `0700` and the index file is `0600`.
+- **No network port.** The search engine runs as a daemon on a Unix socket that only your
+  user can reach.
+- **One network use.** The model download from huggingface.co, started by you. Every other
+  command sets the offline flags of the underlying libraries.
+- **Verified model.** The download is checked against the Hub's file sizes and SHA-256
+  hashes before the model is used.
+- **Diagnostics are opt-in and redacted.** **Settings → Advanced → Copy diagnostics…** produces
+  text with no file names, queries or contents for you to review. Nothing is sent
+  automatically.
+
+## Uninstall
+
+**Settings → Advanced → Uninstall** lists exactly what will be removed, with sizes: the
+index, the downloaded model, preferences, caches (including GPU shader caches macOS
+created for the app), the login item, and the app itself. Your own files and folders are
+never touched. Afterwards every path is re-checked, and anything that could not be removed
+is listed with instructions (see
+[app/README.md](app/README.md#what-the-uninstall-does-not-remove)). The result can be
+copied or saved as a redacted report.
+
+From source, `semsearch uninstall --yes` removes everything under `~/.semsearch`. The full
+inventory of files the product creates is in
+[engine/UNINSTALL_INVENTORY.md](engine/UNINSTALL_INVENTORY.md).
+
+## How it works
+
+```
+ Menu-bar app (SwiftUI)  --Unix socket-->  Python daemon  -->  ~/.semsearch/
+  Option+Space panel       newline JSON     model kept warm      index.db (SQLite)
+  FSEvents folder watch                     hybrid search        config.json, models/
+```
+
+- **Embeddings:** `intfloat/multilingual-e5-small` through sentence-transformers, on the
+  Apple GPU (MPS) with a CPU fallback. Chunks are about 400 tokens with 60 tokens of
+  overlap.
+- **Storage:** one SQLite file holds chunks, vectors (float32 blobs) and an FTS5 index.
+  Vector search is exact cosine similarity in NumPy, which is comfortable up to roughly
+  100,000 chunks. Beyond that, an approximate-nearest-neighbour index can replace it; the
+  place is marked in the code.
+- **Ranking:** vector and keyword rankings are fused with reciprocal rank fusion, then
+  aggregated per file. A similarity floor drops weak matches, with exemptions for
+  exact-identifier hits and file-name hits.
+- **App:** a SwiftUI menu-bar app that owns the UI, folder watching and the daemon's
+  lifecycle. The bundled Python runtime is self-contained and relocatable.
+
+Further reading: [engine/README.md](engine/README.md) (CLI, daemon protocol, packaging),
+[app/README.md](app/README.md) (app architecture, build, tests) and
+[engine/MODEL_CHOICE.md](engine/MODEL_CHOICE.md) (model comparison and numbers).
+
+## Performance and evaluation
+
+Measured on an Apple Silicon MacBook (48 GB) with small corpora:
+
+| Measure | Result |
+| --- | --- |
+| Indexing | about 27 files per second (300-file generated corpus, `engine/tools/bench_index.py`) |
+| Query latency | median about 22 ms in-process; about 3 s from a cold command line (model load) |
+| Retrieval quality | 1.00 MRR and recall@5 for both Finnish and English on a 63-document, 64-query set |
+| Exact identifiers | found every time |
+| File-name queries | 4 of 4 |
+| Off-topic queries | 0 of 10 returned results |
+
+The evaluation set is small and was written together with the engine, and the similarity
+threshold was tuned on it. Treat it as a regression suite rather than a benchmark of
+real-world quality: notes with slang, abbreviations and mixed languages will be harder. If
+a relevant result is missing, the threshold is the first thing to check.
+
+## Known limitations
+
+- **Same-language search.** An English query will not reliably find a Finnish file, or the
+  reverse. The index does not translate.
+- **No PDF or DOCX** yet, and no search by what a photo shows (OCR reads text only).
+- **Apple Silicon and macOS 14 or later** only.
+- **Not notarized**, hence the one-time right-click on first launch.
+
+## Development
+
+Requires an Apple Silicon Mac, Python 3.12+ and the Xcode Command Line Tools.
 
 ```bash
 python3 -m venv .venv
@@ -74,7 +172,7 @@ python3 -m venv .venv
 .venv/bin/semsearch fetch-model        # one-time model download (about 470 MB)
 ```
 
-The command-line tool:
+Command-line tool:
 
 ```bash
 .venv/bin/semsearch add ~/Documents/notes      # register a folder
@@ -85,85 +183,22 @@ The command-line tool:
 .venv/bin/semsearch remove ~/Documents/notes
 ```
 
-Build the app and a shareable disk image:
+Build the app and a disk image:
 
 ```bash
-engine/package_runtime.sh   # self-contained Python runtime, about 514 MB unpacked (verified at the end)
+engine/package_runtime.sh   # self-contained Python runtime, about 514 MB unpacked, verified at the end
 app/build.sh                # app/dist/SemanticSpotlight.app
-app/make_dmg.sh             # app/dist/SemanticSpotlight.dmg (about 236 MB before the smaller runtime; rebuild to measure)
+app/make_dmg.sh             # app/dist/SemanticSpotlight.dmg (about 175 MB)
 ```
 
-## Uninstall
-
-Open **Settings → Uninstall**. The confirmation lists exactly what goes, with sizes: the
-index, the downloaded model, preferences, caches, the GPU shader caches macOS made for
-it, the login item, and finally the app itself. Your own files and folders are never
-touched. Afterwards it re-checks every path and lists anything it could not remove, and
-the result can be copied or saved as a redacted report. Anything the app created that it could not remove is listed afterwards, with how to finish it
-(see [app/README.md](app/README.md#what-the-uninstall-does-not-remove)); your own files are left alone.
-From source, `semsearch uninstall --yes` removes everything under `~/.semsearch`. The
-full list of files the product creates is in
-[engine/UNINSTALL_INVENTORY.md](engine/UNINSTALL_INVENTORY.md).
-
-For a support request, **Settings → Diagnostics → Copy diagnostics…** shows a redacted text (no file names, queries or contents) to read first; nothing is sent automatically.
-
-## How it works
-
-```
- Menu-bar app (SwiftUI)  --Unix socket-->  Python daemon  -->  ~/.semsearch/
-  Option+Space panel       newline JSON     model kept warm      index.db (SQLite)
-  FSEvents folder watch                     hybrid search        config.json, models/
-```
-
-- **Embeddings:** `intfloat/multilingual-e5-small`, via sentence-transformers on Apple
-  GPU (MPS) with a CPU fallback. Chunks are about 400 tokens with 60 tokens of overlap.
-- **Storage:** one SQLite file holds chunks, vectors (float32 blobs) and an FTS5
-  index. Vector search is plain numpy cosine, which is comfortable up to roughly
-  100,000 chunks. Beyond that, swap in an ANN index; the spot is marked in the code.
-- **Privacy:** `~/.semsearch` is `0700` and the index is `0600`. The daemon listens on
-  a Unix socket that only you can reach, not on a network port.
-
-The model comparison and its numbers are in
-[engine/MODEL_CHOICE.md](engine/MODEL_CHOICE.md). Engine details are in
-[engine/README.md](engine/README.md); app details are in [app/README.md](app/README.md).
-
-## Numbers, honestly reported
-
-Measured on an Apple Silicon MacBook (48 GB), small corpora:
-
-- **Indexing:** about 27 files per second on a 300-file generated corpus
-  (`engine/tools/bench_index.py`, 300 chunks). Unchanged files are skipped without being read.
-- **Query latency:** a median of about 22 ms per query in the same benchmark (real model,
-  in-process); about 3 s from a cold command line, which is mostly loading the model.
-- **Quality:** on a 63-document, 64-query bilingual test set, Finnish and English both
-  score 1.00 MRR and recall@5, exact-ID queries find their file every time, and the
-  file-name queries find their file (4 of 4). Off-topic queries return nothing (0 of 10 with hits).
-
-Please apply the appropriate pinch of salt: that test set is small and was written by
-the same people who wrote the search engine. Real notes with slang, abbreviations and
-mixed languages will be harder. The similarity floor was tuned on the same set, so
-if you notice a good result missing, it is the first thing to suspect.
-
-## Known limits
-
-- **Same-language search only.** An English query will not reliably find a Finnish file
-  or the other way round. The index does not translate.
-- **No PDF or DOCX** yet, and no searching photos by what they show (OCR reads text only).
-- **Apple Silicon and macOS 14+ only.**
-- **Not notarized,** hence the one-time right-click.
-- The per-folder file counts in the app are totals across all folders.
-
-## Tests
+Tests:
 
 ```bash
-.venv/bin/pytest engine/tests                       # 95 tests, about 70 seconds
+.venv/bin/pytest engine/tests                       # engine tests, about 70 seconds
 .venv/bin/python engine/tests/eval/run_eval.py      # bilingual retrieval evaluation
 ```
 
-Built with Python, SQLite and SwiftUI, and a firm belief that your notes are nobody
-else's business.
-
 ## License
 
-MIT, see [LICENSE](LICENSE). Bundled third-party software and its licenses:
+MIT, see [LICENSE](LICENSE). Bundled third-party software and its licenses are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
