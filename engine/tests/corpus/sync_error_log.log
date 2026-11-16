@@ -1,0 +1,4 @@
+2026-03-02 04:11:09 INFO  sync-worker started pid=4411
+2026-03-02 04:11:12 WARN  retry 2/5 for batch 88
+2026-03-02 04:11:15 ERROR ERR-40417 disk quota exceeded while writing shard 7 (volume /data/shards)
+2026-03-02 04:11:15 ERROR sync-worker aborted after 3 retries

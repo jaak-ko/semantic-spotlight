@@ -1,0 +1,3 @@
+Listat ohjelmoinnissa
+
+Pythonissa lista on muuttuva jono, johon voi lisätä alkioita append-metodilla. Silmukka käy listan läpi yksi alkio kerrallaan. Listakäsitteet tiivistävät yksinkertaiset silmukat yhdeksi riviksi, mutta liian pitkät tekevät koodista vaikeasti luettavaa. Muista, että listan indeksointi alkaa nollasta.

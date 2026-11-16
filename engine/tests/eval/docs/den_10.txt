@@ -1,0 +1,3 @@
+Honeybee colony life cycle
+
+A honeybee colony has one queen, thousands of workers and seasonal drones. The queen lays eggs throughout spring and summer, and workers feed the larvae with pollen and nectar. In autumn the colony prepares for winter by storing honey in the comb. The bees cluster together to keep the hive warm until spring returns.

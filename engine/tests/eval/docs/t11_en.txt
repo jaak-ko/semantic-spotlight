@@ -1,0 +1,3 @@
+Logging working hours
+
+Working hours are logged weekly in the system using the timesheet, which your manager approves. Enter a project code for each working day and list overtime hours on their own line. Entries must be made by Monday morning of the following week so payroll can run. If you worked remotely, note it in the comment field.

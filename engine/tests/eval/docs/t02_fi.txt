@@ -1,0 +1,3 @@
+Kunnan tietoaineistojen siirto
+
+Kaupungin avoimen datan putki siirretään vanhoista ajastetuista skripteistä uuteen orkestrointityönkulkuun. Tarkistettavaa on, että rivimäärät täsmäävät siirron jälkeen, vanha tiedostopalvelin poistetaan käytöstä ja tietoaineistojen skeemat jäädytetään. Siirron aikataulu sovitaan tietohallinnon kanssa. Tavoitteena on, että väestö-, lupa- ja palvelupyyntöaineistot päivittyvät yöllä automaattisesti ilman käsityötä.

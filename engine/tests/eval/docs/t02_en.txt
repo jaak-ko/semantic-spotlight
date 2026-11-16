@@ -1,0 +1,3 @@
+Municipal data migration
+
+We are moving the city's open data pipeline from old scheduled scripts to a new orchestrated workflow. Things to check: row counts must match after cutover, the legacy file server gets switched off, and dataset schemas are frozen before the move. The timing is agreed with the city IT office. The goal is that population, permit and service request datasets refresh automatically overnight without manual work.

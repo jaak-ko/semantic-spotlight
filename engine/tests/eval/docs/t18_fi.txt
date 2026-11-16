@@ -1,0 +1,3 @@
+Auton katsastus
+
+Auton katsastus on tehtävä määräajoin, ja vanhemmille autoille katsastusväli on lyhyempi. Ennen katsastusta tarkista jarrupalojen paksuus, renkaiden urasyvyys ja valojen toiminta. Jos jarrupalat ovat ohuet, vaihto kannattaa tehdä ennen katsastusaikaa. Katsastuksen tunniste auton tiedoissa on KATS-2290. Hylätystä katsastuksesta saa uuden ajan muutamassa päivässä.

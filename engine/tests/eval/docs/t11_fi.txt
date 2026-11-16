@@ -1,0 +1,3 @@
+Työajan kirjaaminen
+
+Työaika kirjataan viikoittain järjestelmään tuntilomakkeella, jonka hyväksyy oma esimies. Merkitse projektikoodi jokaiselle työpäivälle ja erittele ylityötunnit omalle rivilleen. Kirjaukset tehdään viimeistään maanantaina seuraavan viikon alussa, jotta palkanlaskenta onnistuu. Jos olet ollut etätyössä, merkitse se kommenttikenttään. Tuntilomakkeen tunnus on AIKA-3307.

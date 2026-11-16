@@ -1,0 +1,3 @@
+Salasanojen hallinta
+
+Käytä jokaiselle palvelulle omaa salasanaa ja hallitse niitä salasanahallinnan avulla. Pitkä salasana, jossa on neljä tai viisi satunnaista sanaa, on useimmiten parempi kuin lyhyt monimutkainen merkkijono. Ota käyttöön kaksivaiheinen tunnistautuminen erityisesti sähköpostiin ja pankkiin. Älä jaa salasanoja sähköpostitse, ja vaihda salasana heti, jos epäilet tunnuksen vuotaneen.

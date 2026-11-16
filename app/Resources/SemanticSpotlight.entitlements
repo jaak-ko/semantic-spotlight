@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Semantic Spotlight requests no entitlements.
+  In particular there is NO com.apple.security.network.client or
+  com.apple.security.network.server key: the app has no network code.
+  App Sandbox is intentionally off (the app reads folders the user picks and
+  talks to a local Unix socket only).
+-->
+<plist version="1.0">
+<dict/>
+</plist>

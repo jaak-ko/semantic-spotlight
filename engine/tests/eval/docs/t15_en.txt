@@ -1,0 +1,3 @@
+Password management
+
+Use a unique password for every service and manage them with a password manager. A long passphrase of four or five random words is usually better than a short complicated string. Turn on two-factor login especially for email and banking. Never share passwords by email, and change one at once if you suspect the account has leaked.

@@ -1,0 +1,3 @@
+Photography exposure triangle
+
+The exposure triangle links aperture, shutter speed and ISO. A wide aperture lets in more light and blurs the background. A slow shutter speed shows motion as a streak, while a fast one freezes it. High ISO brightens the image but adds grain, so it is best kept low.

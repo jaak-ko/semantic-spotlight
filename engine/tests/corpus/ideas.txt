@@ -1,0 +1,2 @@
+Side project ideas: a bird-song identifier for the balcony, a tool to tidy the downloads
+folder, an offline photo tagger, a habit tracker that works without an account.
