@@ -28,6 +28,8 @@ struct FolderPopoverView: View {
     @ObservedObject var model: SearchModel
     @ObservedObject var scope: FolderScope
     let onHover: (Bool) -> Void
+    /// Opens Settings (the owner dismisses the list and the panel first).
+    var onSettings: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,10 +37,20 @@ struct FolderPopoverView: View {
                 ThemeButton("All", role: .secondary, size: .compact) { scope.setAll(included: true) }
                     .disabled(scope.allIncluded)
                     .accessibilityLabel("Search all folders")
+                    .layoutProbe("popover.all")
                 ThemeButton("None", role: .secondary, size: .compact) { scope.setAll(included: false) }
                     .disabled(scope.included.isEmpty)
                     .accessibilityLabel("Search no folders")
                 Spacer()
+                // Settings, icon only: the way to Settings when the menu-bar item is not in sight. A quiet 24 pt control.
+                ThemeButton(role: .quiet, size: .compact, action: onSettings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .regular))
+                        .frame(width: 16, height: 16)
+                }
+                .help("Settings")
+                .accessibilityLabel("Settings")
+                .layoutProbe("popover.settings")
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)
@@ -116,11 +128,12 @@ final class FolderPopoverController {
     let panel: NSPanel
     private let hosting: NSHostingView<FolderPopoverView>
 
-    init(model: SearchModel, onHover: @escaping (Bool) -> Void) {
+    init(model: SearchModel, onHover: @escaping (Bool) -> Void, onSettings: @escaping () -> Void) {
         #if DEBUG
         Self.instancesMade += 1
         #endif
-        hosting = NSHostingView(rootView: FolderPopoverView(model: model, scope: model.scope, onHover: onHover))
+        hosting = NSHostingView(rootView: FolderPopoverView(model: model, scope: model.scope, onHover: onHover,
+                                                            onSettings: onSettings))
         panel = FolderPanel(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 200),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         panel.contentView = hosting

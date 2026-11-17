@@ -414,6 +414,7 @@ final class SearchController: NSObject, NSWindowDelegate {
     private(set) var hideCount = 0
     private(set) var popoverOpenCount = 0
     private(set) var popoverCloseCount = 0
+    private(set) var settingsOpenCount = 0
 
     init(engine: EngineManager, scope: FolderScope, defaults: PrefStore = AppPrefs.store) {
         self.defaults = defaults
@@ -644,12 +645,21 @@ final class SearchController: NSObject, NSWindowDelegate {
         if pinned { popoverPinned = true }
         guard !model.folderPopoverOpen else { return }
         if popover == nil {
-            popover = FolderPopoverController(model: model, onHover: { [weak self] inside in self?.folderHover(inside) })
+            popover = FolderPopoverController(model: model, onHover: { [weak self] inside in self?.folderHover(inside) },
+                                              onSettings: { [weak self] in self?.openSettings() })
         }
         popover?.show(below: folderAnchor, of: panel, animated: !Headless.enabled)
         if Headless.enabled, let p = popover?.panel { Headless.makeInvisible(p) }
         model.folderPopoverOpen = true
         popoverOpenCount += 1
+    }
+
+    /// The popover's Settings button: the list and the panel are dismissed, then Settings comes to front (the same window
+    /// the menu's Settings item opens).
+    private func openSettings() {
+        hide()
+        settingsOpenCount += 1
+        SettingsWindow.shared.show()
     }
 
     private func closePopover() {
@@ -782,7 +792,7 @@ final class SearchController: NSObject, NSWindowDelegate {
 
     private func debugPopover() -> NSView? {
         if popover == nil {
-            popover = FolderPopoverController(model: model, onHover: { _ in })
+            popover = FolderPopoverController(model: model, onHover: { _ in }, onSettings: {})
         }
         guard let p = popover?.panel else { return nil }
         let height = max(p.contentView?.fittingSize.height ?? 80, 80)
