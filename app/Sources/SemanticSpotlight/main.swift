@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.lastMessage = message
             Diagnostics.latestStatus = status
             Diagnostics.engineMessage = message
+            self.search.setRebuilding(status?.rebuilding ?? false)
             self.tracker.apply(status)
             self.folderScope.reconcile(status)
             self.refresh()

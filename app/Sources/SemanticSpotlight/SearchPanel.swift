@@ -21,6 +21,8 @@ final class SearchModel: ObservableObject {
     @Published var folderPopoverOpen = false
     @Published var notice = ""
     @Published var focusTick = 0
+    /// The engine is rebuilding the search index: results are partial, so an empty search says so instead.
+    private(set) var rebuilding = false
     /// The most the result list may be tall (the controller sets it from the screen). Longer lists scroll.
     @Published var maxListHeight: CGFloat = SearchLayout.maxListHeight(screenVisibleHeight: 900)
 
@@ -41,6 +43,20 @@ final class SearchModel: ObservableObject {
     }
 
     var selected: Hit? { hits.indices.contains(selection) ? hits[selection] : nil }
+
+    /// The notice for a search with no results. While the index is rebuilt the results are partial: no "No good matches".
+    static func emptyNotice(rebuilding: Bool) -> String {
+        rebuilding ? IndexNotice.rebuilding : "No good matches"
+    }
+
+    /// From each status poll. A notice already showing for an empty search follows the change.
+    func setRebuilding(_ on: Bool) {
+        guard rebuilding != on else { return }
+        if hits.isEmpty, notice == Self.emptyNotice(rebuilding: rebuilding) {
+            notice = Self.emptyNotice(rebuilding: on)
+        }
+        rebuilding = on
+    }
 
 #if DEBUG
     /// Test only: sets the results as the engine would (the notice follows the rule in `search`).
@@ -129,7 +145,7 @@ final class SearchModel: ObservableObject {
             switch result {
             case .success(let found):
                 self.hits = found
-                self.notice = found.isEmpty ? "No good matches" : ""
+                self.notice = found.isEmpty ? Self.emptyNotice(rebuilding: self.rebuilding) : ""
             case .failure(let error):
                 self.hits = []
                 self.notice = error.localizedDescription
@@ -415,6 +431,9 @@ final class SearchController: NSObject, NSWindowDelegate {
     private(set) var popoverOpenCount = 0
     private(set) var popoverCloseCount = 0
     private(set) var settingsOpenCount = 0
+
+    /// The engine's rebuild state, from each status poll: an empty search then says the results are still filling in.
+    func setRebuilding(_ on: Bool) { model.setRebuilding(on) }
 
     init(engine: EngineManager, scope: FolderScope, defaults: PrefStore = AppPrefs.store) {
         self.defaults = defaults

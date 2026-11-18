@@ -35,6 +35,10 @@ struct EngineStatus {
     let hasFolderProgress: Bool
     /// `progress.waiting_cloud`: files in iCloud the engine is waiting to download (run-level); 0 on older engines.
     let waitingCloud: Int
+    /// `rebuilding` (top level): the engine is rebuilding the search index, so results are partial. False on older engines.
+    let rebuilding: Bool
+    /// `files_partial` (top level): large files only partly indexed (their names are always searchable). 0 on older engines.
+    let filesPartial: Int
 
     init(_ r: [String: Any]) {
         files = r["files"] as? Int ?? 0
@@ -62,6 +66,8 @@ struct EngineStatus {
                                          done: d["done"] as? Int ?? 0, total: d["total"] as? Int ?? 0))
         }, uniquingKeysWith: { first, _ in first })
         waitingCloud = progress?["waiting_cloud"] as? Int ?? 0
+        rebuilding = r["rebuilding"] as? Bool ?? false
+        filesPartial = r["files_partial"] as? Int ?? 0
     }
 
     /// Each folder's own progress for the Folders tab while a run is busy. A folder the engine has not reached yet is

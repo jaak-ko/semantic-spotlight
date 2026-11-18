@@ -313,6 +313,7 @@ enum ProgressTests {
         failures += FolderPopoverSettingsTests.run()
         failures += DiagnosticsLogTests.run()
         failures += FolderProgressTests.run()
+        failures += IndexNoticeTests.run()
         return failures
     }
 }

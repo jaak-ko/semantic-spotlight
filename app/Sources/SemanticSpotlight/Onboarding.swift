@@ -80,6 +80,10 @@ final class OnboardingModel: ObservableObject {
     @Published var ownProgress: [String: FolderProgress] = [:]
     /// Files in iCloud the engine is waiting to download (0 when none).
     @Published var waitingCloud = 0
+    /// The engine is rebuilding the search index (the Folders tab says so quietly).
+    @Published var rebuilding = false
+    /// Large files only partly indexed (0 when none).
+    @Published var filesPartial = 0
 
     private var process: Process?
     private var finished = false
@@ -108,6 +112,8 @@ final class OnboardingModel: ObservableObject {
         let own = status.ownFolderProgress
         if ownProgress != own { ownProgress = own }
         if waitingCloud != status.waitingCloud { waitingCloud = status.waitingCloud }
+        if rebuilding != status.rebuilding { rebuilding = status.rebuilding }
+        if filesPartial != status.filesPartial { filesPartial = status.filesPartial }
     }
 
     /// The download's child process id while it runs (nil otherwise): tests check it is gone after a cancel.
@@ -564,6 +570,16 @@ enum CloudWaitLine {
     }
 }
 
+/// The quiet index lines: the rebuild note (Folders tab, menu, search's empty state) and the partly indexed large files
+/// (Folders tab). Plain prose, no error styling: search works, it is only not complete yet.
+enum IndexNotice {
+    static let rebuilding = "Updating the search index for better results. Search works more fully as files are indexed."
+    static func partial(_ count: Int) -> String {
+        count == 1 ? "1 large file is only partly indexed. Its name is always searchable."
+                   : "\(count) large files are only partly indexed. Their names are always searchable."
+    }
+}
+
 /// One folder of the indexed state: a green check when indexed, a slim bar while indexing, its name and its count, and
 /// the failure actions (Retry, Show details) when it was not added. Remove is a small text button, shown on hover.
 /// One folder, on one line: the status icon, the name, the path (middle-truncated, it takes the free width), the file count
@@ -808,6 +824,14 @@ final class OnboardingWindow {
                 model.apply(EngineStatus(["files": 30, "chunks": 90, "folders": paths, "indexing": false, "model": "m",
                                           "model_ready": true, "folder_stats": paths.map { ["path": $0, "files": 10] }]),
                             rows: paths.map { FolderRow(id: $0, path: $0, text: "10 files", tone: .ok) })
+            }
+            if variant == "rebuilding" || variant == "partial" {   // one indexed folder; the engine's quiet line for the state
+                var status: [String: Any] = ["files": 10, "chunks": 30, "folders": ["/fixture/notes"], "indexing": false,
+                                             "model": "m", "model_ready": true,
+                                             "folder_stats": [["path": "/fixture/notes", "files": 10]]]
+                if variant == "rebuilding" { status["rebuilding"] = true } else { status["files_partial"] = 3 }
+                model.apply(EngineStatus(status),
+                            rows: [FolderRow(id: "/fixture/notes", path: "/fixture/notes", text: "10 files", tone: .ok)])
             }
         }
     }

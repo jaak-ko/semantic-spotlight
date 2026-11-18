@@ -362,6 +362,12 @@ struct FolderActionsBlock: View {
             if model.waitingCloud > 0 {   // quiet: the files are not a problem, the engine is only waiting for iCloud
                 Text(CloudWaitLine.text(model.waitingCloud)).font(.system(size: 11)).foregroundStyle(Theme.muted)
             }
+            if model.rebuilding {
+                Text(IndexNotice.rebuilding).font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            if model.filesPartial > 0 {
+                Text(IndexNotice.partial(model.filesPartial)).font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
             if !model.canChooseFolder {
                 Text("Download the language model first.").font(.system(size: 11)).foregroundStyle(Theme.muted)
             }

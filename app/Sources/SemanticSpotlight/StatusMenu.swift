@@ -111,6 +111,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         updateStats()
         let structure = [message, status == nil ? "no engine" : "engine",
                          status?.model ?? "", "\(status?.modelReady ?? false)", "\((status?.waitingCloud ?? 0) > 0)",
+                         "\(status?.rebuilding ?? false)",
                          rows.map { "\($0.path)|\($0.tone)|\($0.text)" }.joined(separator: "\n")].joined(separator: "|")
         guard structure != lastStructure else { return }
         lastStructure = structure
@@ -266,6 +267,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             cloudItem = cloud
             menu.addItem(cloud)
         }
+        if let s = status, s.rebuilding { menu.addItem(disabled(IndexNotice.rebuilding)) }
         menu.addItem(makeFoldersRow())
         menu.addItem(.separator())
         menu.addItem(action("Reindex Now", #selector(reindex)))
