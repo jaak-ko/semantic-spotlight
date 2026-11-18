@@ -33,7 +33,7 @@ struct EngineStatus {
     let folderProgress: [String: FolderProgress]
     /// Whether the engine sent `progress.folders` (an older engine did not, and its rows keep the run-wide numbers).
     let hasFolderProgress: Bool
-    /// `waiting_cloud`: files in iCloud that the engine is waiting to download (run-level); 0 on older engines.
+    /// `progress.waiting_cloud`: files in iCloud the engine is waiting to download (run-level); 0 on older engines.
     let waitingCloud: Int
 
     init(_ r: [String: Any]) {
@@ -61,7 +61,7 @@ struct EngineStatus {
             return (path, FolderProgress(path: path, phase: d["phase"] as? String ?? "indexing",
                                          done: d["done"] as? Int ?? 0, total: d["total"] as? Int ?? 0))
         }, uniquingKeysWith: { first, _ in first })
-        waitingCloud = r["waiting_cloud"] as? Int ?? 0
+        waitingCloud = progress?["waiting_cloud"] as? Int ?? 0
     }
 
     /// Each folder's own progress for the Folders tab while a run is busy. A folder the engine has not reached yet is
@@ -197,7 +197,9 @@ final class EngineManager: FolderEngine {
     private let queue = DispatchQueue(label: "semsearch.status")   // status + child process
     private let jobs = DispatchQueue(label: "semsearch.jobs")      // index/add/remove/query-style work
     private var child: Process?
-    private var indexedOnce = false
+    private var indexOnUp = true            // queue only: send `index` when a daemon answers (launch, and after each restart)
+    private var lastStatusAt: TimeInterval = -.infinity   // queue only: status polls are at least 0.5 s apart
+    static let minStatusGap: TimeInterval = 0.5
     private var quitting = false
     private var nextPoll: DispatchWorkItem?  // queue only: the one pending poll
     private var lastBusy = false             // queue only
@@ -336,12 +338,16 @@ final class EngineManager: FolderEngine {
     // MARK: - private (queue only)
 
     private func tick() {
+        // send() and the welcome window ask for a poll at once; they wait here so status is never asked for faster than 0.5 s.
+        let wait = Self.minStatusGap - (Date().timeIntervalSinceReferenceDate - lastStatusAt)
+        if wait > 0 { scheduleNext(after: wait); return }
+        lastStatusAt = Date().timeIntervalSinceReferenceDate
         do {
             let status = EngineStatus(try client.request(["cmd": "status"], timeout: 5))
             lastBusy = status.busy
-            if !indexedOnce {
-                indexedOnce = true
-                send([["cmd": "index"]])   // index on launch
+            if indexOnUp {   // the run continues where the last one stopped (a memory restart keeps what was committed)
+                indexOnUp = false
+                send([["cmd": "index"]])
             }
             publish(status, "Running")
         } catch {
@@ -352,9 +358,9 @@ final class EngineManager: FolderEngine {
     }
 
     /// Replaces any pending poll, so polls never multiply.
-    private func scheduleNext() {
+    private func scheduleNext(after delay: TimeInterval? = nil) {
         nextPoll?.cancel()
-        let interval: TimeInterval = lastBusy ? 0.5 : (wantFastPolling ? 1 : 5)
+        let interval: TimeInterval = delay ?? (lastBusy ? Self.minStatusGap : (wantFastPolling ? 1 : 5))
         let work = DispatchWorkItem { [weak self] in self?.tick() }
         nextPoll = work
         queue.asyncAfter(deadline: .now() + interval, execute: work)
@@ -392,6 +398,7 @@ final class EngineManager: FolderEngine {
         do {
             try p.run()
             child = p
+            indexOnUp = true
             AppLog.app("app: starting engine (reason: \(nextStart ?? "launch"))")
             nextStart = nil
             return "Starting engine…"

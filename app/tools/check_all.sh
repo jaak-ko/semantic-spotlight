@@ -11,7 +11,7 @@ python3 tools/semsearch_home_guard.py snap "$SNAP"
 # A user's app may start during the run: this samples for it until the end (its marker is read by compare).
 python3 tools/semsearch_home_guard.py watch "$SNAP" &
 WATCH_PID=$!
-for t in check_redaction check_uninstall check_uninstall_sheet check_diagnostics check_progress check_menu_stress check_search_scope check_onboarding check_layout check_folders check_theme check_chrome check_download check_log; do
+for t in check_redaction check_uninstall check_uninstall_sheet check_diagnostics check_progress check_menu_stress check_search_scope check_onboarding check_layout check_folders check_theme check_chrome check_download check_log check_restart; do
     echo "=================== $t"
     if ! bash "tools/$t.sh"; then FAILED="$FAILED $t"; fi
     echo "--- clean state after $t"

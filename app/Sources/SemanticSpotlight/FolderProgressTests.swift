@@ -1,7 +1,7 @@
 #if DEBUG
 import Foundation
 
-/// Test only (run by the theme test): each folder's own progress from `progress.folders` and the run's `waiting_cloud`.
+/// Test only (run by the theme test): each folder's own progress from `progress.folders` and the run's `progress.waiting_cloud`.
 /// The payload is a fixture: two folders with different progress, one not started, and an older engine with no payload.
 enum FolderProgressTests {
     static func run() -> Int {
@@ -13,8 +13,8 @@ enum FolderProgressTests {
         let notes = "/fixture/notes", projects = "/fixture/projects", archive = "/fixture/archive"
         let busy: [String: Any] = [
             "files": 40, "chunks": 90, "folders": [notes, projects, archive], "indexing": true,
-            "model": "m", "model_ready": true, "waiting_cloud": 4,
-            "progress": ["phase": "indexing", "done": 45, "total": 309, "folders": [
+            "model": "m", "model_ready": true,
+            "progress": ["phase": "indexing", "done": 45, "total": 309, "waiting_cloud": 4, "folders": [
                 ["path": notes, "phase": "indexing", "done": 15, "total": 300],
                 ["path": projects, "phase": "done", "done": 9, "total": 9],
             ]],

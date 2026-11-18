@@ -106,6 +106,7 @@ extension GlassCaptureTests {
                                          ("settings-folders-empty", 3, "", .folders),
                                          ("settings-folders-indexing", 4, "mixed", .folders),
                                          ("settings-folders-per-folder", 4, "per-folder", .folders),
+                                         ("settings-folders-real", 4, "real", .folders),
                                          ("settings-general-failed", 2, "error", .general),
                                          ("settings-general-cancelled", 2, "cancelled", .general),
                                          ("settings-general-downloading", 2, "", .general),

@@ -591,6 +591,7 @@ struct FolderRowView: View {
         case .busy:
             if let own {   // a waiting folder says so; an indexing one shows its own count
                 if own.phase == "waiting" { return "Waiting" }
+                if own.phase == "scanning" { return "Scanning…" }
                 return own.total > 0 ? "\(own.done) of \(own.total)" : row.text
             }
             return indexLine.isEmpty ? row.text : indexLine
@@ -782,14 +783,22 @@ final class OnboardingWindow {
                                    FolderRow(id: paths[1], path: paths[1], text: "Indexing 15 of 309 files", tone: .busy),
                                    FolderRow(id: paths[2], path: paths[2], text: "10 files", tone: .ok)])
             }
+            if variant == "real" {   // the Folders tab from a status payload the real engine sent (a file the capture names)
+                if let path = ProcessInfo.processInfo.environment["SS_REAL_STATUS"],
+                   let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                    let status = EngineStatus(obj)
+                    model.apply(status, rows: FolderTracker.shared.rows(status))
+                }
+            }
             if variant == "per-folder" {   // three folders with their own progress: done, 60% and 33%, one not started yet
                 let paths = ["/fixture/notes", "/fixture/projects", "/fixture/archive"]
                 let own: [[String: Any]] = [["path": paths[0], "phase": "done", "done": 300, "total": 300],
                                             ["path": paths[1], "phase": "indexing", "done": 40, "total": 120]]
                 model.apply(EngineStatus(["files": 240, "chunks": 900, "folders": paths, "indexing": true, "model": "m",
-                                          "model_ready": true, "waiting_cloud": 4,
+                                          "model_ready": true,
                                           "folder_stats": [["path": paths[0], "files": 300], ["path": paths[1], "files": 40]],
-                                          "progress": ["phase": "indexing", "done": 340, "total": 420, "folders": own]]),
+                                          "progress": ["phase": "indexing", "done": 340, "total": 420, "waiting_cloud": 4, "folders": own]]),
                             rows: [FolderRow(id: paths[0], path: paths[0], text: "Indexing…", tone: .busy),
                                    FolderRow(id: paths[1], path: paths[1], text: "Indexing…", tone: .busy),
                                    FolderRow(id: paths[2], path: paths[2], text: "Indexing…", tone: .busy)])
