@@ -66,7 +66,7 @@ LOG
     sed -i '' "s|__HOME__|$h|g" "$h/.semsearch/app-daemon.log"
     # The engine's event log: hostile messages (a path and an e-mail inside a field) that the report must redact.
     cat > "$h/.semsearch/events.jsonl" <<'EVENTS'
-{"ts":"2026-11-13T09:15:00+02:00","level":"info","event":"daemon_start","run":"3f9a1c2b","version":"0.1.0"}
+{"ts":"2026-11-13T09:15:00+02:00","level":"info","event":"daemon_start","run":"3f9a1c2b","version":"0.1.1"}
 {"ts":"2026-11-13T09:16:00+02:00","level":"warn","event":"index_error","run":"3f9a1c2b","class":"OSError","message":"could not read __HOME__/Documents/My Notes/secret plan.txt for someone@example.org"}
 {"ts":"2026-11-13T09:17:00+02:00","level":"info","event":"index_end","run":"3f9a1c2b","files":26,"chunks":130,"seconds":4}
 {"ts":"2026-11-14T08:00:00+02:00","level":"info","event":"daemon_stop","run":"3f9a1c2b"}
