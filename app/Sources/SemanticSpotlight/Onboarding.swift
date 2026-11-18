@@ -573,7 +573,7 @@ enum CloudWaitLine {
 /// The quiet index lines: the rebuild note (Folders tab, menu, search's empty state) and the partly indexed large files
 /// (Folders tab). Plain prose, no error styling: search works, it is only not complete yet.
 enum IndexNotice {
-    static let rebuilding = "Updating the search index for better results. Search works more fully as files are indexed."
+    static let rebuilding = "Updating the search index for better results."
     static func partial(_ count: Int) -> String {
         count == 1 ? "1 large file is only partly indexed. Its name is always searchable."
                    : "\(count) large files are only partly indexed. Their names are always searchable."
@@ -825,11 +825,13 @@ final class OnboardingWindow {
                                           "model_ready": true, "folder_stats": paths.map { ["path": $0, "files": 10] }]),
                             rows: paths.map { FolderRow(id: $0, path: $0, text: "10 files", tone: .ok) })
             }
-            if variant == "rebuilding" || variant == "partial" {   // one indexed folder; the engine's quiet line for the state
+            if ["rebuilding", "partial", "all"].contains(variant) {   // one indexed folder; the engine's quiet lines for the state
                 var status: [String: Any] = ["files": 10, "chunks": 30, "folders": ["/fixture/notes"], "indexing": false,
                                              "model": "m", "model_ready": true,
                                              "folder_stats": [["path": "/fixture/notes", "files": 10]]]
-                if variant == "rebuilding" { status["rebuilding"] = true } else { status["files_partial"] = 3 }
+                if variant != "partial" { status["rebuilding"] = true }
+                if variant != "rebuilding" { status["files_partial"] = 3 }
+                if variant == "all" { status["progress"] = ["phase": "idle", "waiting_cloud": 4] }   // the iCloud line too
                 model.apply(EngineStatus(status),
                             rows: [FolderRow(id: "/fixture/notes", path: "/fixture/notes", text: "10 files", tone: .ok)])
             }

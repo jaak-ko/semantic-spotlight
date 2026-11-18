@@ -359,19 +359,17 @@ struct FolderActionsBlock: View {
                     .layoutProbe("folders.index")
             }
             .frame(maxWidth: .infinity, alignment: .center)
-            if model.waitingCloud > 0 {   // quiet: the files are not a problem, the engine is only waiting for iCloud
-                Text(CloudWaitLine.text(model.waitingCloud)).font(.system(size: 11)).foregroundStyle(Theme.muted)
-            }
-            if model.rebuilding {
-                Text(IndexNotice.rebuilding).font(.system(size: 11)).foregroundStyle(Theme.muted)
-            }
-            if model.filesPartial > 0 {
-                Text(IndexNotice.partial(model.filesPartial)).font(.system(size: 11)).foregroundStyle(Theme.muted)
-            }
-            if !model.canChooseFolder {
-                Text("Download the language model first.").font(.system(size: 11)).foregroundStyle(Theme.muted)
-            }
+            // Quiet status lines: one style, centred, stacked with the same spacing. The files are not a problem.
+            if model.waitingCloud > 0 { statusLine(CloudWaitLine.text(model.waitingCloud)) }
+            if model.rebuilding { statusLine(IndexNotice.rebuilding) }
+            if model.filesPartial > 0 { statusLine(IndexNotice.partial(model.filesPartial)) }
+            if !model.canChooseFolder { statusLine("Download the language model first.") }
         }
         .layoutProbe("folders.lowest")
+    }
+
+    private func statusLine(_ text: String) -> some View {
+        Text(text).font(.system(size: 11)).foregroundStyle(Theme.muted)
+            .multilineTextAlignment(.center).frame(maxWidth: .infinity)
     }
 }

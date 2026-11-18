@@ -23,8 +23,7 @@ enum IndexNoticeTests {
                                   "model": "m", "model_ready": true])
         check("an older engine: no rebuild line", !older.rebuilding)
         check("an older engine: no partial line", older.filesPartial == 0)
-        check("rebuild line text", IndexNotice.rebuilding
-              == "Updating the search index for better results. Search works more fully as files are indexed.")
+        check("rebuild line text", IndexNotice.rebuilding == "Updating the search index for better results.")
         check("partial line, plural", IndexNotice.partial(3)
               == "3 large files are only partly indexed. Their names are always searchable.")
         check("partial line, singular", IndexNotice.partial(1)
