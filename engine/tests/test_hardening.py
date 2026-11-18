@@ -46,6 +46,9 @@ class _FakeStore:
     def vectors(self):
         return self.ids, self.mat
 
+    def name_vectors(self):  # no file names in this fake index
+        return np.zeros(0, dtype=np.int64), np.zeros((0, 0), dtype=np.float32)
+
     def fts_ids(self, match, limit, scope=None):
         return self.kw
 

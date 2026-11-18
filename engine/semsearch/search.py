@@ -80,6 +80,36 @@ def _snippet(text, terms, width=300):
     return " ".join(text[a:a + width].split())
 
 
+NAME_FLOOR = 0.83  # a file's name vector must be at least this close to the query to count as a name hit
+
+
+def _common_name_word(store, word, prefix, norm) -> bool:
+    """A single query word held by more than NAME_CAP file names is generic: it is not a name hit."""
+    return sum(1 for p in store.file_paths() if _name_has(p, word, prefix, norm)) > NAME_CAP
+
+
+def _name_ranking(store, nfids, nmat, qv, toks, prefix, scope, cfg):
+    """Files whose NAME vector is close to the query, best first, as their first chunk ids (the third list in
+    the fusion, and exempt from the chunk floor). A single common word is not used: 'notes' is not a name hit
+    for every 'Notes NN' file."""
+    if qv is None or not len(nfids):
+        return [], set()
+    sims = nmat @ qv
+    floor = float(cfg.get("name_min_similarity", NAME_FLOOR))
+    order = np.argsort(-sims)[:POOL]
+    chosen = [int(nfids[i]) for i in order if sims[i] >= floor]
+    words = [t for t in toks if len(t) >= 2]
+    if not chosen or (len(words) == 1 and _common_name_word(
+            store, words[0], prefix, stem if cfg.get("stemming") else (lambda w: w))):
+        return [], set()
+    first = store.first_chunks(chosen)
+    cids = [first[f] for f in chosen if f in first]
+    if scope is not None:
+        inside = set(int(c) for c in scope)
+        cids = [c for c in cids if c in inside]
+    return cids, set(cids)
+
+
 def _sim(ids, sims, cid):
     """Cosine of chunk `cid` in this snapshot. 0.0 when it has no vector here: it was indexed after the snapshot."""
     if sims is None:
@@ -115,10 +145,11 @@ def _query(store, emb, text: str, n: int = 10, cfg=None, folders=None) -> list:
     if scope is not None and not len(scope):
         return []
     ids, mat = store.vectors()
+    nfids, nmat = store.name_vectors()
     sims = None
     vec_ids = []
+    qv = emb.embed([text], "query")[0] if (len(ids) or len(nfids)) else None
     if len(ids):
-        qv = emb.embed([text], "query")[0]
         sims = mat @ qv
         cand = np.arange(len(ids))
         if scope is not None:
@@ -135,8 +166,9 @@ def _query(store, emb, text: str, n: int = 10, cfg=None, folders=None) -> list:
     # The last word is an unfinished prefix when the text does not end in a space or punctuation.
     prefix_word = toks[-1] if toks and re.search(r"[^\W_]$", text) and len(toks[-1]) >= PREFIX_MIN else None
     kw_ids = store.fts_ids(_match(terms, prefix_word), POOL, scope=scope)
+    name_ids, name_set = _name_ranking(store, nfids, nmat, qv, toks, prefix_word, scope, cfg)
     scores = defaultdict(float)
-    for ranking in (vec_ids, kw_ids):
+    for ranking in (vec_ids, kw_ids, name_ids):
         for r, cid in enumerate(ranking):
             scores[cid] += 1.0 / (RRF_K + r + 1)
     norm = 2.0 / (RRF_K + 1)
@@ -155,7 +187,7 @@ def _query(store, emb, text: str, n: int = 10, cfg=None, folders=None) -> list:
         if c is None or c["path"] in seen:
             continue  # first chunk per file is its best one
         sim = _sim(ids, sims, cid)
-        if sim < floor and not (cid in kw_set and any(t in c["text"].lower() for t in exact)):
+        if sim < floor and cid not in name_set and not (cid in kw_set and any(t in c["text"].lower() for t in exact)):
             if cid not in kw_set:
                 continue
             if c["path"] not in named:

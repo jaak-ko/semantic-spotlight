@@ -21,7 +21,8 @@ BUCKETS = {"FI": lambda x: x["kind"] == "mono" and x["lang"] == "fi",
            "XL fi->en": lambda x: x["kind"] == "xl" and x["lang"] == "fi",
            "XL en->fi": lambda x: x["kind"] == "xl" and x["lang"] == "en",
            "ID": lambda x: x["kind"] == "id",
-           "NAME": lambda x: x["kind"] == "name"}
+           "NAME": lambda x: x["kind"] == "name",
+           "NAME+TOPIC": lambda x: x["kind"] == "nametopic"}
 
 
 class _Index:

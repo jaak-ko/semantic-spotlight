@@ -51,6 +51,12 @@ NAME_QUERIES = [  # the eval docs of these names hold none of the query words in
     ("Thomas Sowell", "Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt"),
     ("sosiaalinen oikeudenmukaisuus", "Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt"),
     ("IMG_1723", "IMG_1723.txt"), ("Lahti 2026", "Asunto Lahti 2026.txt"),
+    ("Sowell", "Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt"), ("Lahti", "Asunto Lahti 2026.txt"),
+]
+NAME_TOPIC_QUERIES = [  # a name word (only in the file name) plus a topic word (only in the text)
+    ("Sowell yhteiskunnan reiluus", "Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt"),
+    ("Sowell työmarkkinat", "Thomas Sowell, sosiaalinen oikeudenmukaisuus.txt"),
+    ("Lahti vuokrasopimus", "Asunto Lahti 2026.txt"), ("Lahti takuuvuokra", "Asunto Lahti 2026.txt"),
 ]
 
 
@@ -66,13 +72,15 @@ def build():
         out.append({"q": q, "lang": "en", "kind": "xl", "rel": f"{t}_fi.txt"})
     for q, rel in NAME_QUERIES:  # words that are only in the file name
         out.append({"q": q, "lang": "name", "kind": "name", "rel": rel})
+    for q, rel in NAME_TOPIC_QUERIES:  # a file-name word and a text word
+        out.append({"q": q, "lang": "name", "kind": "nametopic", "rel": rel})
     for q, t in ID_QUERIES:
         out.append({"q": q, "lang": "id", "kind": "id", "rel": f"{t}_fi.txt"})
     return out
 
 
 QUERIES = build()
-assert len(QUERIES) == 64
+assert len(QUERIES) == 70
 
 # Off-topic queries about things the corpus does not contain. Any hit is junk.
 JUNK = [

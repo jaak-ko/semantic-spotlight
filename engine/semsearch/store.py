@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS folders (path TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL,
-    mtime REAL, size INTEGER, sha256 TEXT, partial INTEGER NOT NULL DEFAULT 0);
+    mtime REAL, size INTEGER, sha256 TEXT, partial INTEGER NOT NULL DEFAULT 0, name_vec BLOB);
 CREATE TABLE IF NOT EXISTS chunks (
     id INTEGER PRIMARY KEY,
     file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -29,6 +29,7 @@ VEC_REFRESH_SECONDS = 5.0  # the vector matrix is rebuilt at most this often whi
 
 # Vector matrix cache per DB path: (gen, ids, matrix, loaded_at). Rebuilt when the gen changes, at most every few seconds.
 _VEC_CACHE: dict = {}
+_NAME_CACHE: dict = {}
 # Folder path -> sorted chunk ids under it, per DB path and generation: toggling folders in the UI costs no re-scan.
 _SCOPE_CACHE: dict = {}
 # DB path -> (gen, folder stats): status runs twice a second while indexing.
@@ -106,8 +107,11 @@ class Store:
             if "path" not in cols:  # OCR caches written before paths were kept
                 self.db.execute("ALTER TABLE ocr_cache ADD COLUMN path TEXT")
             self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (STORE_MARK,))
-        if "partial" not in [r[1] for r in self.db.execute("PRAGMA table_info(files)")]:
+        cols = [r[1] for r in self.db.execute("PRAGMA table_info(files)")]
+        if "partial" not in cols:
             self.db.execute("ALTER TABLE files ADD COLUMN partial INTEGER NOT NULL DEFAULT 0")  # indexes before the cap
+        if "name_vec" not in cols:
+            self.db.execute("ALTER TABLE files ADD COLUMN name_vec BLOB")  # indexes before the name vectors
         self.db.commit()
 
     def _secure(self):
@@ -200,14 +204,14 @@ class Store:
         self.db.execute("UPDATE files SET mtime=?, size=? WHERE id=?", (mtime, size, fid))
         self._dirty = True
 
-    def add_file(self, path, mtime, size, sha, folder=None, partial=False):
+    def add_file(self, path, mtime, size, sha, folder=None, partial=False, name_vec=None):
         """Insert a file row. With `folder`, the insert happens only while that folder is still registered
         (checked in the same statement), so a removal cannot leave the file behind. Returns None when refused.
         `partial`: only the first chunks of the file are indexed (max_chunks_per_file)."""
         cur = self.db.execute(
-            "INSERT INTO files (path, mtime, size, sha256, partial) SELECT ?,?,?,?,? "
+            "INSERT INTO files (path, mtime, size, sha256, partial, name_vec) SELECT ?,?,?,?,?,? "
             "WHERE ? IS NULL OR EXISTS (SELECT 1 FROM folders WHERE path=?)",
-            (path, mtime, size, sha, int(partial), folder, folder))
+            (path, mtime, size, sha, int(partial), name_vec, folder, folder))
         self._dirty = True
         return cur.lastrowid if cur.rowcount else None
 
@@ -281,6 +285,29 @@ class Store:
         ranked = np.fromiter((r[0] for r in self.db.execute(
             "SELECT rowid FROM fts WHERE fts MATCH ? ORDER BY rank", (match,))), dtype=np.int64)
         return ranked[np.isin(ranked, scope, assume_unique=True)][:limit].tolist()
+
+    def name_vectors(self):
+        """(file ids ascending, float32 matrix) of the file-name vectors. Cached like vectors()."""
+        gen = self.get_meta("gen")
+        key = str(self.path)
+        hit = _NAME_CACHE.get(key)
+        if hit and (hit[0] == gen or time.monotonic() - hit[3] < VEC_REFRESH_SECONDS):
+            return hit[1], hit[2]
+        rows = self.db.execute("SELECT id, name_vec FROM files WHERE name_vec IS NOT NULL ORDER BY id").fetchall()
+        if not rows:
+            return np.zeros(0, dtype=np.int64), np.zeros((0, 0), dtype=np.float32)
+        ids = np.array([r[0] for r in rows], dtype=np.int64)
+        mat = np.frombuffer(b"".join(r[1] for r in rows), dtype=np.float32).reshape(len(rows), -1)
+        _NAME_CACHE[key] = (gen, ids, mat, time.monotonic())
+        return ids, mat
+
+    def first_chunks(self, file_ids):
+        """{file id: id of its first chunk} for the given files (the chunk that stands for a name hit)."""
+        if not file_ids:
+            return {}
+        q = ",".join("?" * len(file_ids))
+        return {f: c for f, c in self.db.execute(
+            f"SELECT file_id, MIN(id) FROM chunks WHERE file_id IN ({q}) GROUP BY file_id", list(file_ids))}
 
     def vectors(self):
         """(chunk ids ascending, float32 matrix) for all chunks. Reused until the index changes, and

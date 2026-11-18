@@ -222,6 +222,12 @@ def _data_like(text: str) -> bool:
     return prose / len(nonspace) < DATA_LIKE_SHARE or max(len(line) for line in head.split("\n")) > DATA_LIKE_LINE
 
 
+def _name_words(path) -> str:
+    """The file name without its extension, as words for its name vector: 'poliittinen_meta-kartta.txt' ->
+    'poliittinen meta kartta'."""
+    return " ".join(re.sub(r"[_\-]+", " ", os.path.splitext(os.path.basename(path))[0]).split())
+
+
 def _index_file(ctx, path, folder):
     """Index one file if it is new or changed. Raises OSError for files that cannot be read.
     Nothing is written if `folder` was removed while the file was being embedded."""
@@ -251,21 +257,25 @@ def _index_file(ctx, path, folder):
     partial = len(spans) > limit  # a huge or data-like file: its first chunks only, the name still counts
     spans = spans[:limit]
     data_like = _data_like(text)
+    words = _name_words(path)
     if spans:
-        t0 = time.perf_counter()
-        vecs = emb.embed([text[s:e] for s, e in spans], "passage")
+        t0 = time.perf_counter()  # the name's vector rides in the same batch as the chunks
+        allv = emb.embed([text[s:e] for s, e in spans] + [words], "passage")
+        vecs, name_vec = allv[:-1], allv[-1]
         ctx["timing"]["embed"] += time.perf_counter() - t0
     else:
         # No text (an empty file, or an image without OCR text): one empty chunk with a zero vector, so the
         # file name is still a keyword match. Its zero cosine never passes the floor on its own.
         spans = [(0, 0)]
         vecs = np.zeros((1, emb.model.get_sentence_embedding_dimension()), dtype=np.float32)
+        name_vec = emb.embed([words], "passage")[0]
     name = name_text(path, cfg)
     # The name goes into the first chunk only: a long file is not favoured by having its name in every chunk.
     fts_texts = [keyword_text(text[s:e], cfg) + ("\n" + name if seq == 0 else "") for seq, (s, e) in enumerate(spans)]
     if row:
         store.delete_file(row[0])
-    fid = store.add_file(path, st.st_mtime, st.st_size, sha, folder, partial=partial)
+    fid = store.add_file(path, st.st_mtime, st.st_size, sha, folder, partial=partial,
+                         name_vec=np.asarray(name_vec, dtype=np.float32).tobytes())
     if fid is None:
         return
     for seq, ((s, e), v, ft) in enumerate(zip(spans, vecs, fts_texts)):

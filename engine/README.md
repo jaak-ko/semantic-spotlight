@@ -220,3 +220,10 @@ For support reports: what happened over weeks (indexing trouble, restarts, crash
 - A file is data-like when, in its first 64 KB, letters and prose punctuation are under 60% of the non-space characters, or a line is longer than 4000 characters (minified JSON, one-line dumps). Data-like files get the same cap and are counted.
 - The cap is never silent: `status` reports `files_partial` (files indexed only partly, persisted per file), and `index_end` in the event log reports `files_truncated` and `files_data_like` for the run.
 - Changing `max_chunks_per_file` takes effect for files indexed after the change; re-index to apply it to files already indexed. Schema 6 (this version) rebuilds the index once.
+
+## File-name vectors
+
+- Every file has one name vector: its name words (underscores and hyphens as spaces, no extension), embedded as `passage: <name words>` in the same batch as its chunks, empty files included. Chunk vectors are unchanged: a chunk's embedded text is only its own text.
+- A query ranks files by name vector as a third list in the fusion, and a name hit is exempt from the chunk floor (like a keyword hit). Its floor is `name_min_similarity` (default 0.83). The floor was chosen on the eval: 0.81 and 0.80 cost FI and EN monolingual recall; 0.84 and above lose the name+topic gain.
+- A single query word held by more than `NAME_CAP` (8) file names is not used for name vectors, the same rule as for name matches: `notes` does not find every `Notes NN`, and `ko` does not find every `Kotitalous NN`.
+- Eval (e5-small, `engine/tests/eval`, 70 queries): NAME+TOPIC (a file-name word plus a text word) went from MRR 0.50 to 1.00; NAME (name-only) 1.00 before and after; FI, EN, cross-lingual and exact-ID unchanged; off-topic queries with hits 0/10 before and after. The window of good floors (0.82 to 0.83) is narrow and was tuned on this same small eval.
