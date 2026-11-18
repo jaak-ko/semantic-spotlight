@@ -442,7 +442,7 @@ def _error(ctx, e, folder_index):
     cls = type(e).__name__
     ctx["errors"][cls] = ctx["errors"].get(cls, 0) + 1
     if sum(ctx["errors"].values()) <= ERROR_EVENTS:
-        events.write("warn", "index_error", **{"class": cls, "message": e.strerror or str(e),
+        events.write("warn", "index_error", **{"class": cls, "message": getattr(e, "strerror", None) or str(e),
                                               "folder_index": folder_index})
 
 
