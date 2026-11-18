@@ -227,3 +227,9 @@ For support reports: what happened over weeks (indexing trouble, restarts, crash
 - A query ranks files by name vector as a third list in the fusion, and a name hit is exempt from the chunk floor (like a keyword hit). Its floor is `name_min_similarity` (default 0.83). The floor was chosen on the eval: 0.81 and 0.80 cost FI and EN monolingual recall; 0.84 and above lose the name+topic gain.
 - A single query word held by more than `NAME_CAP` (8) file names is not used for name vectors, the same rule as for name matches: `notes` does not find every `Notes NN`, and `ko` does not find every `Kotitalous NN`.
 - Eval (e5-small, `engine/tests/eval`, 70 queries): NAME+TOPIC (a file-name word plus a text word) went from MRR 0.50 to 1.00; NAME (name-only) 1.00 before and after; FI, EN, cross-lingual and exact-ID unchanged; off-topic queries with hits 0/10 before and after. The window of good floors (0.82 to 0.83) is narrow and was tuned on this same small eval.
+
+## Status fields for the app (daemon `{"cmd":"status"}`)
+
+- `rebuilding` (bool, top level): true from the moment a schema, model or settings change starts rebuilding a non-empty index until that rebuild's indexing has finished (or failed). False otherwise. Set in the daemon's process only.
+- `files_partial` (int, top level): files indexed only partly (the chunk cap).
+- The event log records the rebuild as `schema_rebuild` (from, to, reason).

@@ -418,11 +418,20 @@ def _schema(sig) -> int:
     return int(m.group(1)) if m else 0
 
 
+_REBUILDING: set = set()  # index paths whose rebuild is running in this process (status: rebuilding)
+
+
+def is_rebuilding() -> bool:
+    """True from the moment a schema, model or settings rebuild starts until its indexing has finished."""
+    return bool(_REBUILDING)
+
+
 def _check_signature(store, emb, cfg, log):
     sig = index_signature(cfg, emb.name)
     old = store.get_meta("sig")
     if old != sig:  # also rebuilds indexes written before signatures existed
         if store.counts()[0]:  # a new, empty index has nothing to rebuild
+            _REBUILDING.add(str(store.path))
             log(f"index settings changed ({sig}): rebuilding index")
             events.write("info", "schema_rebuild", reason="schema" if _schema(old) != SCHEMA_VERSION else "settings",
                          **{"from": _schema(old), "to": SCHEMA_VERSION})
@@ -465,6 +474,8 @@ def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None, t
     except Exception as e:
         events.write("error", "index_error", **{"class": type(e).__name__, "message": str(e), "folder_index": -1})
         raise
+    finally:
+        _REBUILDING.discard(str(store.path))  # the rebuild's indexing is over, or it failed
     errors = st["error_classes"]
     events.write("warn" if errors else "info", "index_end", rss_mb=rss_mb(), peak_rss_mb=st["peak_rss_mb"],
                  files_scanned=st["files_scanned"], files_cloud_only=st["files_cloud_only"],

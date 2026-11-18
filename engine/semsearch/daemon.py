@@ -70,7 +70,7 @@ class Daemon:
             f, c, folders = read_summary()
             return {"ok": True, "files": f, "chunks": c, "folders": folders,
                     "folder_stats": read_folder_stats(),
-                    "indexing": prog["phase"] != "idle", "progress": prog, "files_partial": read_partial(), "rss_limit_mb": indexer.rss_limit_mb(self.cfg["model"]),
+                    "indexing": prog["phase"] != "idle", "progress": prog, "files_partial": read_partial(), "rebuilding": indexer.is_rebuilding(), "rss_limit_mb": indexer.rss_limit_mb(self.cfg["model"]),
                     "model": self.cfg["model"],
                     "model_ready": modelfiles.model_ready(self.cfg["model"]), "rss_mb": indexer.rss_mb(),
                     "model_verifying": modelfiles.model_verifying(self.cfg["model"])}
