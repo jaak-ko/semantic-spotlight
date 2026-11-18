@@ -72,7 +72,7 @@ class Daemon:
                     "folder_stats": read_folder_stats(),
                     "indexing": prog["phase"] != "idle", "progress": prog,
                     "model": self.cfg["model"],
-                    "model_ready": modelfiles.model_ready(self.cfg["model"]),
+                    "model_ready": modelfiles.model_ready(self.cfg["model"]), "rss_mb": indexer.rss_mb(),
                     "model_verifying": modelfiles.model_verifying(self.cfg["model"])}
         if cmd == "index":
             modelfiles.verify_install(self.cfg["model"], force=True)  # an unmarked install is checked now, not cached
@@ -124,15 +124,20 @@ class Daemon:
             for folders, trigger in batch:
                 try:
                     with Store() as s:
-                        indexer.sync(s, self.embedder(), self.cfg, folders,
-                                     log=lambda m: print(m, file=sys.stderr, flush=True),
-                                     progress=self.progress, trigger=trigger)
+                        st = indexer.sync(s, self.embedder(), self.cfg, folders,
+                                          log=lambda m: print(m, file=sys.stderr, flush=True),
+                                          progress=self.progress, trigger=trigger)
+                    if st.get("memory_limit"):
+                        _restart("memory")  # what was committed stays; the next run continues
+                        return
                 except Exception as e:  # keep the daemon alive; report on stderr
                     print(f"index failed: {e}", file=sys.stderr, flush=True)
                     self.progress.abandon()  # this folder's unrun items leave the total; the next folder still runs
 
 
 DAEMON: Daemon | None = None
+EXIT_RESTART = 75  # EX_TEMPFAIL: the daemon stopped to free memory; the app relaunches it
+EXIT_CODE = 0  # what run() returns; EXIT_RESTART after a memory restart
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -184,6 +189,13 @@ def _signal_stop(server):
     threading.Thread(target=server.shutdown).start()  # shutdown() must run off the serving thread
 
 
+def _restart(reason):
+    global STOP_REASON, EXIT_CODE
+    STOP_REASON, EXIT_CODE = reason, EXIT_RESTART
+    events.write("warn", "memory_restart", rss_mb=indexer.rss_mb(), limit_mb=indexer.RSS_LIMIT_MB)
+    threading.Thread(target=SERVER.shutdown, daemon=True).start()
+
+
 def run():
     global DAEMON, SERVER, LOCK_FD
     config.ensure_home()  # the socket lives in the home
@@ -208,7 +220,7 @@ def run():
     events.install_excepthooks()
     events.prune()
     DAEMON = Daemon()
-    events.write("info", "daemon_start", pid=os.getpid(), version=events.engine_version(),
+    events.write("info", "daemon_start", pid=os.getpid(), version=events.engine_version(), rss_mb=indexer.rss_mb(),
                  model_ready=modelfiles.model_ready(DAEMON.cfg["model"]), previous_run_clean=previous_clean)
     modelfiles.start_verify(DAEMON.cfg["model"])  # an unmarked install is checked off the start path
     if not modelfiles.model_verifying(DAEMON.cfg["model"]):
@@ -235,4 +247,4 @@ def run():
             os.unlink(path)
     events.write("info", "daemon_stop", reason=STOP_REASON)  # an exception above leaves the marker: unclean
     events.clear_running()
-    return 0
+    return EXIT_CODE

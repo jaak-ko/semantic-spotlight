@@ -6,6 +6,10 @@ import numpy as np
 
 _lock = threading.Lock()  # model is shared by the daemon's query and indexing threads
 SLICE = 32  # texts per lock hold
+# MPS compiles one graph per tensor shape and keeps it in host memory: padded lengths and batch rows come from
+# these few sizes only, or memory grows with every new text length (measured: 11 GB after 940 files).
+BUCKETS = (64, 128, 256, 384, 512)
+ROWS = 16
 _models: dict = {}
 
 
@@ -41,13 +45,35 @@ class Embedder:
         with _lock:  # the fast tokenizer is not reentrant: indexing counts tokens while a query encodes
             return len(self.tok.encode(text, add_special_tokens=False))
 
+    def _encode_bucketed(self, texts):
+        """Same vectors as model.encode (padding is masked out), but with the fixed shapes in BUCKETS."""
+        import torch
+        feats = self.model.tokenize(texts)
+        n, length = feats["input_ids"].shape
+        padded = next(b for b in BUCKETS if b >= length)
+        out = []
+        for i in range(0, n, ROWS):
+            rows = min(ROWS, n - i)
+            extra = ROWS - rows if rows > 1 else 0  # a lone query is one row: no rows of padding for it
+            chunk = {}
+            for k, v in feats.items():
+                v = v[i:i + rows]
+                fill = self.tok.pad_token_id if k == "input_ids" else 0
+                chunk[k] = torch.nn.functional.pad(v, (0, padded - length, 0, extra), value=fill).to(self.model.device)
+            with torch.no_grad():
+                vec = self.model.forward(chunk)["sentence_embedding"][:rows]
+            out.append(torch.nn.functional.normalize(vec.float(), dim=1).cpu().numpy())
+        return np.concatenate(out)
+
     def _encode(self, batch):
         try:
-            return self.model.encode(batch, batch_size=16, normalize_embeddings=True, convert_to_numpy=True)
+            if getattr(getattr(self.model, "device", None), "type", None) == "mps":
+                return self._encode_bucketed(batch)
+            return self.model.encode(batch, batch_size=ROWS, normalize_embeddings=True, convert_to_numpy=True)
         except RuntimeError:
             # MPS can fail on some ops; fall back to CPU for the rest of the process.
             self.model = self.model.to("cpu")
-            return self.model.encode(batch, batch_size=16, normalize_embeddings=True, convert_to_numpy=True)
+            return self.model.encode(batch, batch_size=ROWS, normalize_embeddings=True, convert_to_numpy=True)
 
     def embed(self, texts, kind: str) -> np.ndarray:
         if not texts:

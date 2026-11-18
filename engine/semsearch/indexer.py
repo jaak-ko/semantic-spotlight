@@ -18,6 +18,15 @@ TEXTUTIL = "/usr/bin/textutil"  # built into macOS; converts RTF to plain text
 SCHEMA_VERSION = 5  # bump when the stored index layout or keyword text changes (5: separators split words)
 COMMIT_EVERY_FILES = 50   # a crash loses at most this many files, re-indexed next run
 COMMIT_EVERY_SECONDS = 5.0
+RSS_LIMIT_MB = 3072  # above this at a commit, the run stops there and the daemon restarts (see daemon.py)
+
+
+def rss_mb() -> int:
+    """Resident memory of this process in MB (ps, no extra dependency); 0 if ps is unavailable."""
+    try:
+        return int(subprocess.check_output(["ps", "-o", "rss=", "-p", str(os.getpid())], timeout=5).strip()) // 1024
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return 0
 MIN_OCR_CHARS = 10        # an image with less recognised text than this is treated as having none
 KEEP = object()           # "leave this file's row as it is" (e.g. OCR helper unavailable)
 
@@ -139,6 +148,10 @@ def _maybe_commit(ctx, force=False):
     if force or pending[0] >= COMMIT_EVERY_FILES or time.time() - pending[1] >= COMMIT_EVERY_SECONDS:
         ctx["store"].commit()
         pending[0], pending[1] = 0, time.time()
+        rss = rss_mb()
+        ctx["peak_rss"] = max(ctx.get("peak_rss", 0), rss)  # sampled at each commit: the run's peak
+        if rss > RSS_LIMIT_MB:
+            ctx["memory_limit"] = True
 
 
 def _spans(text, emb, cfg):
@@ -334,14 +347,15 @@ def _error(ctx, e, folder_index):
 def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None, trigger="manual") -> dict:
     """Index the given folders (default: all registered) with the event log: index_start, then index_end, or
     index_error if the run itself fails."""
-    events.write("info", "index_start", trigger=trigger, folders=len(folders or store.folders()))
+    events.write("info", "index_start", trigger=trigger, folders=len(folders or store.folders()), rss_mb=rss_mb())
     try:
         st = _sync(store, emb, cfg, folders, log, progress)
     except Exception as e:
         events.write("error", "index_error", **{"class": type(e).__name__, "message": str(e), "folder_index": -1})
         raise
     errors = st["error_classes"]
-    events.write("warn" if errors else "info", "index_end", files_scanned=st["files_scanned"],
+    events.write("warn" if errors else "info", "index_end", rss_mb=rss_mb(), peak_rss_mb=st["peak_rss_mb"],
+                 files_scanned=st["files_scanned"],
                  files_embedded=st["files_embedded"], files_removed=st["files_removed"], chunks=store.counts()[1],
                  seconds=st["seconds"], errors=sum(errors.values()),
                  top_errors=[{"class": c, "count": n} for c, n in sorted(errors.items(), key=lambda kv: -kv[1])[:5]])
@@ -377,9 +391,13 @@ def _sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) 
         finally:
             progress.tick()
         _maybe_commit(ctx)
+        if ctx.get("memory_limit"):
+            break  # committed so far; the rest waits for the next run
     if not folders:  # every folder was synced: OCR results of vanished images can go
         store.prune_ocr(store.folders())
     _maybe_commit(ctx, force=True)
     ctx["stats"]["seconds"] = round(time.time() - t0, 2)
     ctx["stats"]["error_classes"] = dict(ctx["errors"])
+    ctx["stats"]["memory_limit"] = bool(ctx.get("memory_limit"))
+    ctx["stats"]["peak_rss_mb"] = ctx.get("peak_rss", 0)
     return ctx["stats"]

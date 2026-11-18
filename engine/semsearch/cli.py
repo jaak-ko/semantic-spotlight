@@ -61,6 +61,9 @@ def _index(cfg, folders, trigger="manual"):
           f"embedded {st['files_embedded']} files / {st['chunks_embedded']} chunks, "
           f"removed {st['files_removed']} in {secs:.1f}s {rate}")
     print(f"index: {f} files, {c} chunks")
+    if st.get("memory_limit"):
+        print("stopped at the memory limit after a commit: run `semsearch index` again to continue", file=sys.stderr)
+        return 75  # EX_TEMPFAIL, as the daemon uses for its restart
     return 0
 
 

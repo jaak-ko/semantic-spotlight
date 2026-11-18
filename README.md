@@ -142,7 +142,7 @@ Measured on an Apple Silicon MacBook (48 GB) with small corpora:
 
 | Measure | Result |
 | --- | --- |
-| Indexing | about 27 files per second (300-file generated corpus, `engine/tools/bench_index.py`) |
+| Indexing | about 25 chunks per second on a 300-file generated corpus (`engine/tools/bench_index.py`, measured 23 to 26); chunks per second, not files, because files differ in size |
 | Query latency | median about 22 ms in-process; about 3 s from a cold command line (model load) |
 | Retrieval quality | 1.00 MRR and recall@5 for both Finnish and English on a 63-document, 64-query set |
 | Exact identifiers | found every time |
