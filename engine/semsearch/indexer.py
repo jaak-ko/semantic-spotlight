@@ -1,3 +1,4 @@
+import collections
 import hashlib
 import logging
 import os
@@ -5,6 +6,7 @@ import re
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -18,6 +20,11 @@ TEXTUTIL = "/usr/bin/textutil"  # built into macOS; converts RTF to plain text
 SCHEMA_VERSION = 5  # bump when the stored index layout or keyword text changes (5: separators split words)
 COMMIT_EVERY_FILES = 50   # a crash loses at most this many files, re-indexed next run
 COMMIT_EVERY_SECONDS = 5.0
+SF_DATALESS = 0x40000000  # macOS st_flags: iCloud keeps the content in the cloud; reading the file downloads it
+CLOUD_WORKERS = 4  # downloads in parallel
+CLOUD_AHEAD = 8  # cloud-only files read ahead of the embedder: bounded, so no hundreds of GB are queued
+CLOUD_TIMEOUT = 300.0  # seconds one download may take before the file is skipped
+_stat = os.stat  # indirection so tests can present files as cloud-only
 RSS_LIMIT_MB = 3072  # above this at a commit, the run stops there and the daemon restarts (see daemon.py)
 
 
@@ -79,6 +86,14 @@ def _read(path, max_bytes, log=print):
         return None
 
 
+def _ocr_timed(ctx, helper, path, languages):
+    t0 = time.perf_counter()
+    try:
+        return ocr.ocr_image(helper, path, languages)
+    finally:
+        ctx["timing"]["ocr"] += time.perf_counter() - t0
+
+
 def _image(ctx, path, st):
     """(raw bytes, OCR text), None to drop the file's row, or KEEP when OCR is unavailable."""
     store, cfg, log, stats = ctx["store"], ctx["cfg"], ctx["log"], ctx["stats"]
@@ -98,7 +113,7 @@ def _image(ctx, path, st):
     text = store.get_ocr(key, path)
     if text is None:
         try:
-            text = ocr.ocr_image(helper, path, languages)
+            text = _ocr_timed(ctx, helper, path, languages)
         except ocr.OcrError as e:
             log(f"skip {path}: OCR failed ({e})")
             stats["images_skipped"] += 1
@@ -170,11 +185,13 @@ def _index_file(ctx, path, folder):
     """Index one file if it is new or changed. Raises OSError for files that cannot be read.
     Nothing is written if `folder` was removed while the file was being embedded."""
     store, emb, cfg, stats = ctx["store"], ctx["emb"], ctx["cfg"], ctx["stats"]
-    st = os.stat(path)
+    st = _stat(path)
     row = store.file_row(path)
     if row and row[1] == st.st_mtime and row[2] == st.st_size:
         return  # unchanged: no read, no hash, no embedding
+    ocr0, t0 = ctx["timing"]["ocr"], time.perf_counter()
     got = _extract(ctx, path, st)
+    ctx["timing"]["read"] += time.perf_counter() - t0 - (ctx["timing"]["ocr"] - ocr0)
     if got is KEEP:
         return
     if got is None:
@@ -190,7 +207,9 @@ def _index_file(ctx, path, folder):
         return
     spans = _spans(text, emb, cfg)
     if spans:
+        t0 = time.perf_counter()
         vecs = emb.embed([text[s:e] for s, e in spans], "passage")
+        ctx["timing"]["embed"] += time.perf_counter() - t0
     else:
         # No text (an empty file, or an image without OCR text): one empty chunk with a zero vector, so the
         # file name is still a keyword match. Its zero cosine never passes the floor on its own.
@@ -219,10 +238,28 @@ class Progress:
     done: int = 0                # files fully processed in this run (indexed, skipped or removed)
     total: int = 0               # files that need work in this run; 0 until the scan finishes
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    waiting_cloud: int = 0       # cloud-only files of this run not yet downloaded and processed
+    folders: dict = field(default_factory=dict, repr=False, compare=False)  # path -> [done, total, phase]
 
     def start_session(self):
         with self.lock:
             self.phase, self.done, self.total = "scanning", 0, 0
+            self.waiting_cloud = 0
+            self.folders.clear()
+
+    def add_folder_work(self, folder, n):
+        with self.lock:
+            f = self.folders.setdefault(folder, [0, 0, "scanning"])
+            f[1] += n
+            f[2] = "indexing" if f[1] else "done"
+
+    def set_waiting(self, n):
+        with self.lock:
+            self.waiting_cloud = n
+
+    def cloud_done(self):
+        with self.lock:
+            self.waiting_cloud = max(0, self.waiting_cloud - 1)
 
     def begin_scan(self):
         with self.lock:
@@ -233,10 +270,15 @@ class Progress:
             self.total += n
             self.phase = "indexing"
 
-    def tick(self):
+    def tick(self, folder=None):
         with self.lock:
             if self.done < self.total:
                 self.done += 1
+            f = self.folders.get(folder)
+            if f and f[0] < f[1]:
+                f[0] += 1
+                if f[0] == f[1]:
+                    f[2] = "done"
 
     def abandon(self):
         """A folder's run failed: its unrun items leave the total, so done == total for the work that ran.
@@ -252,10 +294,23 @@ class Progress:
         with self.lock:
             return {"phase": self.phase, "done": self.done, "total": self.total}
 
+    def status(self) -> dict:
+        """The app's progress payload: the run's counts, waiting_cloud, and per folder path, done, total, phase."""
+        with self.lock:
+            return {"phase": self.phase, "done": self.done, "total": self.total, "waiting_cloud": self.waiting_cloud,
+                    "folders": [{"path": p, "done": d, "total": t, "phase": ph}
+                                for p, (d, t, ph) in self.folders.items()]}
+
+
+def _dataless(st) -> bool:
+    return bool(getattr(st, "st_flags", 0) & SF_DATALESS)
+
 
 def _scan_folder(ctx, folder):
-    """Walk one folder and return the work items for this run: ("index", path), ("skip", path, reason)
-    or ("remove", file_id). Unchanged files produce no item."""
+    """Walk one folder and return the work items for this run. Every item ends with its folder:
+    ("index", path, folder), ("cloud", path, folder) for iCloud files that must download first,
+    ("skip", path, reason, folder), ("remove", file_id, folder). Unchanged files produce no item and are
+    never read (the stat alone decides), so an evicted iCloud file that is unchanged costs nothing."""
     store, cfg, stats, log = ctx["store"], ctx["cfg"], ctx["stats"], ctx["log"]
     root = os.path.realpath(folder)
     items, seen = [], set()
@@ -264,27 +319,27 @@ def _scan_folder(ctx, folder):
         seen.add(path)
         try:
             if not _inside(path, root):
-                items.append(("skip", path, f"symlink resolves outside {folder}"))
+                items.append(("skip", path, f"symlink resolves outside {folder}", folder))
                 continue
-            st = os.stat(path)
+            st = _stat(path)
             row = store.file_row(path)
         except OSError as e:  # dangling symlink, permission denied, vanished mid-run
-            items.append(("skip", path, e.strerror or type(e).__name__))
+            items.append(("skip", path, e.strerror or type(e).__name__, folder))
             _error(ctx, e, ctx["folder_no"].get(folder, -1))
             continue
         if row and row[1] == st.st_mtime and row[2] == st.st_size:
             continue  # unchanged: nothing to do
-        items.append(("index", path, folder))
+        items.append(("cloud" if _dataless(st) else "index", path, folder))
     for fid, p in store.files_under(folder):
         if p not in seen:
-            items.append(("remove", fid))
+            items.append(("remove", fid, folder))
     return items
 
 
 def _process(ctx, item):
     """Carry out one work item. Every item is counted as done by the caller, whatever happens here."""
     store, log, stats = ctx["store"], ctx["log"], ctx["stats"]
-    if item[0] == "index":
+    if item[0] in ("index", "cloud"):
         if item[2] not in store.folders():  # removed during this run: its files stay out
             return
         try:
@@ -355,11 +410,84 @@ def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None, t
         raise
     errors = st["error_classes"]
     events.write("warn" if errors else "info", "index_end", rss_mb=rss_mb(), peak_rss_mb=st["peak_rss_mb"],
-                 files_scanned=st["files_scanned"],
+                 files_scanned=st["files_scanned"], files_cloud_only=st["files_cloud_only"],
+                 files_prefetched=st["files_prefetched"], seconds_scan=st["seconds_scan"],
+                 seconds_read=st["seconds_read"], seconds_embed=st["seconds_embed"], seconds_ocr=st["seconds_ocr"],
+                 slowest_file_seconds=st["slowest_file_seconds"], files_per_minute=st["files_per_minute"],
                  files_embedded=st["files_embedded"], files_removed=st["files_removed"], chunks=store.counts()[1],
                  seconds=st["seconds"], errors=sum(errors.values()),
                  top_errors=[{"class": c, "count": n} for c, n in sorted(errors.items(), key=lambda kv: -kv[1])[:5]])
     return st
+
+
+def _run_item(ctx, progress, item):
+    """One work item, counted in the progress and in the slowest-file timing."""
+    t0 = time.perf_counter()
+    try:
+        _process(ctx, item)
+    finally:
+        progress.tick(item[-1])
+    ctx["slowest"] = max(ctx["slowest"], time.perf_counter() - t0)
+    _maybe_commit(ctx)
+
+
+def _fetch(path):
+    """Read a cloud-only file to the end, which makes iCloud download it. Read-only; the bytes are discarded."""
+    with open(path, "rb") as fh:
+        while fh.read(1 << 20):
+            pass
+
+
+def _run_cloud(ctx, progress, items):
+    """iCloud files. Each read downloads its file, so the reads run ahead on a few threads (at most CLOUD_AHEAD
+    waiting) and the embedder works on local files and downloaded ones meanwhile. A download that fails or
+    takes longer than CLOUD_TIMEOUT is a skipped file with its error class; the run goes on."""
+    if not items:
+        return
+    store, stats, cfg = ctx["store"], ctx["stats"], ctx["cfg"]
+    limit = max(cfg["max_file_bytes"], cfg["max_image_bytes"])
+    pool = ThreadPoolExecutor(max_workers=CLOUD_WORKERS, thread_name_prefix="icloud")
+    queue, todo = collections.deque(), iter(items)
+
+    def top_up():
+        while len(queue) < CLOUD_AHEAD:
+            item = next(todo, None)
+            if item is None:
+                return
+            try:
+                small = _stat(item[1]).st_size <= limit  # bigger files are never read: no download needed
+            except OSError:
+                small = False
+            queue.append((item, pool.submit(_fetch, item[1]) if small else None))
+
+    try:
+        top_up()
+        while queue:
+            item, fut = queue.popleft()
+            top_up()
+            t0 = time.perf_counter()
+            err = None
+            if fut is not None:
+                try:
+                    fut.result(timeout=CLOUD_TIMEOUT)
+                    stats["files_prefetched"] += 1
+                except FutureTimeout:
+                    err = TimeoutError(f"download took longer than {CLOUD_TIMEOUT:g} s")
+                except Exception as e:  # a failed download, offline or evicted again: skipped, never fatal
+                    err = e
+            progress.cloud_done()  # downloaded (or failed): no longer waiting in the cloud
+            if err is None:
+                _run_item(ctx, progress, item)
+            else:
+                ctx["log"](f"skip {item[1]}: download failed ({type(err).__name__})")
+                stats["files_skipped"] += 1
+                _error(ctx, err, ctx["folder_no"].get(item[-1], -1))
+                progress.tick(item[-1])
+            ctx["slowest"] = max(ctx["slowest"], time.perf_counter() - t0)
+            if ctx.get("memory_limit"):
+                break
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) -> dict:
@@ -374,30 +502,43 @@ def _sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) 
                      "images_ocred": 0, "images_no_text": 0, "images_skipped": 0},
            "pending": [0, time.time()],  # files since last commit, time of last commit
            "errors": {}, "folder_no": {f: i for i, f in enumerate(store.folders())},
+           "timing": {"read": 0.0, "ocr": 0.0, "embed": 0.0}, "slowest": 0.0,
            "helper": {"resolved": False, "path": None}}
     t0 = time.time()
     progress.begin_scan()
-    items = []
+    local, cloud = [], []
     for folder in folders or store.folders():
         folder = os.path.abspath(folder)
         if not os.path.isdir(folder):
             log(f"skip missing folder {folder}")
             continue
-        items += _scan_folder(ctx, folder)
-    progress.add_work(len(items))
-    for item in items:
-        try:
-            _process(ctx, item)
-        finally:
-            progress.tick()
-        _maybe_commit(ctx)
+        scanned = _scan_folder(ctx, folder)
+        progress.add_folder_work(folder, len(scanned))
+        for item in scanned:
+            (cloud if item[0] == "cloud" else local).append(item)
+    t_scan = time.time() - t0
+    progress.add_work(len(local) + len(cloud))
+    progress.set_waiting(len(cloud))
+    ctx["stats"].update(files_cloud_only=len(cloud), files_prefetched=0)
+    for item in local:  # local files first: the index grows while the cloud downloads run
+        _run_item(ctx, progress, item)
         if ctx.get("memory_limit"):
             break  # committed so far; the rest waits for the next run
+    if not ctx.get("memory_limit"):
+        _run_cloud(ctx, progress, cloud)
+    progress.set_waiting(0)
     if not folders:  # every folder was synced: OCR results of vanished images can go
         store.prune_ocr(store.folders())
     _maybe_commit(ctx, force=True)
     ctx["stats"]["seconds"] = round(time.time() - t0, 2)
-    ctx["stats"]["error_classes"] = dict(ctx["errors"])
-    ctx["stats"]["memory_limit"] = bool(ctx.get("memory_limit"))
-    ctx["stats"]["peak_rss_mb"] = ctx.get("peak_rss", 0)
-    return ctx["stats"]
+    st = ctx["stats"]
+    st["error_classes"] = dict(ctx["errors"])
+    st["memory_limit"] = bool(ctx.get("memory_limit"))
+    st["peak_rss_mb"] = ctx.get("peak_rss", 0)
+    st["seconds_scan"] = round(t_scan, 2)
+    st["seconds_read"] = round(ctx["timing"]["read"], 2)
+    st["seconds_embed"] = round(ctx["timing"]["embed"], 2)
+    st["seconds_ocr"] = round(ctx["timing"]["ocr"], 2)
+    st["slowest_file_seconds"] = round(ctx["slowest"], 2)
+    st["files_per_minute"] = round(st["files_embedded"] / (st["seconds"] / 60), 1) if st["seconds"] else 0.0
+    return st

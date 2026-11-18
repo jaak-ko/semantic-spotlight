@@ -48,8 +48,8 @@ class Recording(__import__("semsearch.indexer", fromlist=["Progress"]).Progress)
         super().add_work(n)
         self.events.append(self.snapshot())
 
-    def tick(self):
-        super().tick()
+    def tick(self, folder=None):
+        super().tick(folder)
         self.events.append(self.snapshot())
 
 
@@ -131,7 +131,9 @@ def test_status_during_a_daemon_run_never_shows_done_above_total(home, tmp_path)
         pr = st["progress"]
         assert pr["done"] <= pr["total"], pr
         assert st["indexing"] == (pr["phase"] != "idle")
-    assert seen[-1]["progress"] == {"phase": "idle", "done": 40, "total": 40}
+    last = seen[-1]["progress"]
+    assert {k: last[k] for k in ("phase", "done", "total")} == {"phase": "idle", "done": 40, "total": 40}
+    assert last["waiting_cloud"] == 0 and [f["done"] for f in last["folders"]] == [40]
 
 
 def test_cli_status_adds_progress_only_when_a_daemon_answers(home, tmp_path, capsys):
@@ -151,7 +153,8 @@ def test_cli_status_adds_progress_only_when_a_daemon_answers(home, tmp_path, cap
         finally:
             os.environ["SEMSEARCH_HOME"] = str(home)
         st = json.loads(capsys.readouterr().out)
-        assert st["progress"] == {"phase": "idle", "done": 0, "total": 0}
+        assert {k: st["progress"][k] for k in ("phase", "done", "total")} == {"phase": "idle", "done": 0, "total": 0}
+        assert st["progress"]["folders"] == [] and st["progress"]["waiting_cloud"] == 0
     finally:
         if proc.poll() is None:
             proc.terminate()

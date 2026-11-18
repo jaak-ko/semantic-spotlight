@@ -118,7 +118,7 @@ def cmd_status(a):
     st["folder_stats"] = read_folder_stats()
     live = _daemon_status(config.home())
     if live and live.get("ok") and "progress" in live:
-        st["progress"] = live["progress"]  # only when a daemon answered: counts only, no paths
+        st["progress"] = live["progress"]  # only when a daemon answered: counts, waiting_cloud, per-folder counts
     if a.json:
         print(json.dumps(st, ensure_ascii=False))
     else:

@@ -66,7 +66,7 @@ class Daemon:
                 return {"ok": True, "results": query(s, emb, str(req["q"]), _clamp_n(req.get("n", 10)),
                                                      self.cfg, folders)}
         if cmd == "status":
-            prog = self.progress.snapshot()  # one read: `indexing` and `progress` always agree
+            prog = self.progress.status()  # one read: `indexing` and `progress` always agree (folders: paths, app only)
             f, c, folders = read_summary()
             return {"ok": True, "files": f, "chunks": c, "folders": folders,
                     "folder_stats": read_folder_stats(),
