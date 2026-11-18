@@ -44,7 +44,7 @@ cp "$BIN" "$APP/Contents/MacOS/SemanticSpotlight"
 strip -S -x "$APP/Contents/MacOS/SemanticSpotlight"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Build stamp: the short commit (with -dirty when the tree has uncommitted changes) and the build date. Nothing absolute.
-plutil -replace CFBundleVersion -string "0.1.1+$BUILD_SHA" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "0.2.0+$BUILD_SHA" "$APP/Contents/Info.plist"
 plutil -replace SSBuildDate -string "$(date '+%-d %b %Y')" "$APP/Contents/Info.plist"
 # The app icon is committed as Resources/icon/AppIcon.icns (regenerate with tools/make_icon.sh), so the build needs no network.
 cp Resources/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

@@ -1,7 +1,7 @@
 import Foundation
 
 /// The build stamp: version, short commit (with "-dirty" when the tree had uncommitted changes), and build date. build.sh
-/// writes them into the built app's Info.plist (CFBundleVersion = "0.1.1+<commit>", SSBuildDate).
+/// writes them into the built app's Info.plist (CFBundleVersion = "0.2.0+<commit>", SSBuildDate).
 enum BuildInfo {
     static var info: [String: Any] { Bundle.main.infoDictionary ?? [:] }
     static var version: String { info["CFBundleShortVersionString"] as? String ?? "?" }
