@@ -70,7 +70,7 @@ class Daemon:
             f, c, folders = read_summary()
             return {"ok": True, "files": f, "chunks": c, "folders": folders,
                     "folder_stats": read_folder_stats(),
-                    "indexing": prog["phase"] != "idle", "progress": prog, "files_partial": read_partial(),
+                    "indexing": prog["phase"] != "idle", "progress": prog, "files_partial": read_partial(), "rss_limit_mb": indexer.rss_limit_mb(self.cfg["model"]),
                     "model": self.cfg["model"],
                     "model_ready": modelfiles.model_ready(self.cfg["model"]), "rss_mb": indexer.rss_mb(),
                     "model_verifying": modelfiles.model_verifying(self.cfg["model"])}
@@ -192,7 +192,7 @@ def _signal_stop(server):
 def _restart(reason):
     global STOP_REASON, EXIT_CODE
     STOP_REASON, EXIT_CODE = reason, EXIT_RESTART
-    events.write("warn", "memory_restart", rss_mb=indexer.rss_mb(), limit_mb=indexer.RSS_LIMIT_MB)
+    events.write("warn", "memory_restart", rss_mb=indexer.rss_mb(), limit_mb=indexer.rss_limit_mb(config.load()["model"]))
     threading.Thread(target=SERVER.shutdown, daemon=True).start()
 
 

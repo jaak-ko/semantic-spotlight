@@ -1,10 +1,10 @@
 """Memory regression benchmark: indexes a seeded mixed corpus (text, RTF, PNG with text) in a temp home with the
 real model and fails when peak resident memory exceeds the bound.
 
-  .venv/bin/python engine/tools/memory_bench.py                 # 2400 text, 800 RTF, 60 images, bound 2560 MB
+  .venv/bin/python engine/tools/memory_bench.py                 # 2400 text, 800 RTF, 60 images, bound: RSS limit
   .venv/bin/python engine/tools/memory_bench.py --quick         # 300 text, 120 RTF, 20 images (about a minute)
 
-Peak RSS is sampled with `ps` every 2 s and also taken from getrusage. Nothing outside the temp folders is read or
+Peak RSS is sampled with `ps` every 2 s and also taken from getrusage. The bound is the safety-net limit for this Mac. Nothing outside the temp folders is read or
 written. The corpus is generated from a fixed seed, so every run indexes the same bytes.
 """
 import argparse
@@ -72,7 +72,7 @@ def main(argv=None) -> int:
     ap.add_argument("--text", type=int, default=2400)
     ap.add_argument("--rtf", type=int, default=800)
     ap.add_argument("--img", type=int, default=60)
-    ap.add_argument("--bound-mb", type=int, default=2560)
+    ap.add_argument("--bound-mb", type=int, default=None, help="default: the daemon's RSS limit for this Mac and model")
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--engine", default=str(ENGINE), help="the engine folder to measure (default: this checkout)")
     a = ap.parse_args(argv)
@@ -99,6 +99,8 @@ def main(argv=None) -> int:
         threading.Thread(target=sample, daemon=True).start()
 
         cfg = config.load()
+        if a.bound_mb is None:
+            a.bound_mb = indexer.rss_limit_mb(cfg["model"])
         emb = Embedder(cfg["model"], config.models_dir())
         folders = [str(work / "corpus" / s) for s in ("text", "rtf", "img")]
         t0 = time.time()

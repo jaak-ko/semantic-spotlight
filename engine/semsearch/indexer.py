@@ -25,7 +25,33 @@ CLOUD_WORKERS = 4  # downloads in parallel
 CLOUD_AHEAD = 8  # cloud-only files read ahead of the embedder: bounded, so no hundreds of GB are queued
 CLOUD_TIMEOUT = 300.0  # seconds one download may take before the file is skipped
 _stat = os.stat  # indirection so tests can present files as cloud-only
-RSS_LIMIT_MB = 3072  # above this at a commit, the run stops there and the daemon restarts (see daemon.py)
+RSS_LIMIT_MB = None  # a fixed limit for tests; None: rss_limit_mb(model), from this Mac's RAM
+RSS_BASE_SHARE = 0.25  # the budget is this share of physical RAM ...
+RSS_BASE_CAP_MB = 6144  # ... capped at 6 GB, and at least 2 GB, so the tiniest Mac still indexes
+RSS_CEILING_SHARE = 0.5  # with the model's weights added, never more than half the RAM
+# Resident weights (fp32 on MPS) and activations of each model, on top of the base. Unknown models get 1 GB.
+MODEL_EXTRA_MB = {"intfloat/multilingual-e5-small": 0, "intfloat/multilingual-e5-base": 1024, "BAAI/bge-m3": 2048}
+_RAM_MB = None
+
+
+def physical_ram_mb() -> int:
+    """Physical memory of this Mac in MB (sysctl hw.memsize). Unknown: 8 GB, the smallest Mac most people use."""
+    global _RAM_MB
+    if _RAM_MB is None:
+        try:
+            _RAM_MB = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], timeout=5).strip()) // (1 << 20)
+        except (subprocess.SubprocessError, OSError, ValueError):
+            _RAM_MB = 8192
+    return _RAM_MB
+
+
+def rss_limit_mb(model=None, ram_mb=None) -> int:
+    """The resident memory an index run may reach before it stops after a commit and the daemon restarts:
+    25% of RAM, between 2 and 6 GB, plus what the model needs resident, and never above half the RAM."""
+    ram = ram_mb or physical_ram_mb()
+    base = min(max(ram * RSS_BASE_SHARE, 2048), RSS_BASE_CAP_MB)
+    limit = min(base + MODEL_EXTRA_MB.get(model, 1024), ram * RSS_CEILING_SHARE)
+    return int(max(limit, 2048))
 
 
 def rss_mb() -> int:
@@ -165,7 +191,7 @@ def _maybe_commit(ctx, force=False):
         pending[0], pending[1] = 0, time.time()
         rss = rss_mb()
         ctx["peak_rss"] = max(ctx.get("peak_rss", 0), rss)  # sampled at each commit: the run's peak
-        if rss > RSS_LIMIT_MB:
+        if rss > ctx["rss_limit"]:
             ctx["memory_limit"] = True
 
 
@@ -526,6 +552,7 @@ def _sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) 
            "pending": [0, time.time()],  # files since last commit, time of last commit
            "errors": {}, "folder_no": {f: i for i, f in enumerate(store.folders())},
            "timing": {"read": 0.0, "ocr": 0.0, "embed": 0.0}, "slowest": 0.0,
+           "rss_limit": RSS_LIMIT_MB or rss_limit_mb(cfg["model"]),
            "helper": {"resolved": False, "path": None}}
     t0 = time.time()
     progress.begin_scan()

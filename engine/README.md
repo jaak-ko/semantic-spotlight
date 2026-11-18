@@ -203,9 +203,9 @@ For support reports: what happened over weeks (indexing trouble, restarts, crash
 ## Memory
 
 - On MPS (Apple GPU) PyTorch keeps one compiled graph per tensor shape in host memory. Sentence-transformers pads each batch to its own longest text, so every batch had a new shape and resident memory grew with the corpus (measured: 15.9 GB peak indexing 4,650 mixed files; 4.3 GB after 440 files). The embedder now pads the length to fixed buckets (64, 128, 256, 384, 512 tokens) and the rows to 16, so only a few shapes exist. The embeddings are the same as before (checked: identical).
-- Safety net: indexing checks resident memory at every commit. Above 3072 MB the run stops after that commit (nothing half-written, the rest waits for the next run). The daemon then exits with code 75, which the app should treat as "restart me", and logs `memory_restart`. `semsearch index` returns 75 in the same case.
+- Safety net: indexing checks resident memory at every commit. The limit depends on this Mac and the model: 25% of physical RAM (`sysctl hw.memsize`), between 2 GB and 6 GB, plus what the model keeps resident (e5-small +0, e5-base +1 GB, bge-m3 +2 GB), and never more than half the RAM. On a 16 GB Mac: 4 GB for e5-small, 6 GB for bge-m3. Above the limit the run stops after that commit (nothing half-written, the rest waits for the next run); the daemon then exits with code 75 and logs `memory_restart`. `semsearch index` returns 75 in the same case. `status` reports `rss_limit_mb`.
 - `status` reports `rss_mb` (the daemon's resident memory). The event log has `rss_mb` at `daemon_start` and `index_start`, and `rss_mb` and `peak_rss_mb` (the highest value sampled at the run's commits) at `index_end`.
-- `engine/tools/memory_bench.py` indexes a generated mixed corpus (text, RTF, PNG with text) in a temp home and fails when the peak exceeds the bound (2560 MB). `--quick` is a smaller run.
+- `engine/tools/memory_bench.py` indexes a generated mixed corpus (text, RTF, PNG with text) in a temp home and fails when the peak exceeds the bound, which defaults to this Mac's limit for the model. `--quick` is a smaller run.
 
 ## iCloud files and progress
 
