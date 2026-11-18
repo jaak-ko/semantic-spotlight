@@ -76,6 +76,10 @@ final class OnboardingModel: ObservableObject {
     @Published var folderCounts: [String: String] = [:]
     /// "15 of 309" while the engine counts an indexing run; empty otherwise.
     @Published var indexLine = ""
+    /// Each folder's own progress for the Folders tab (empty on an older engine or when idle). Run-wide numbers stay in indexLine.
+    @Published var ownProgress: [String: FolderProgress] = [:]
+    /// Files in iCloud the engine is waiting to download (0 when none).
+    @Published var waitingCloud = 0
 
     private var process: Process?
     private var finished = false
@@ -101,6 +105,9 @@ final class OnboardingModel: ObservableObject {
         if folderCounts != counts { folderCounts = counts }
         let line = status.determinate ? "\(status.done) of \(status.total)" : ""
         if indexLine != line { indexLine = line }
+        let own = status.ownFolderProgress
+        if ownProgress != own { ownProgress = own }
+        if waitingCloud != status.waitingCloud { waitingCloud = status.waitingCloud }
     }
 
     /// The download's child process id while it runs (nil otherwise): tests check it is gone after a cancel.
@@ -548,6 +555,13 @@ struct SlimProgressBar: View {
     }
 }
 
+/// The iCloud wait line, shared by the Settings Folders tab and the menu.
+enum CloudWaitLine {
+    static func text(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "file is" : "files are") in iCloud and \(count == 1 ? "is" : "are") being downloaded"
+    }
+}
+
 /// One folder of the indexed state: a green check when indexed, a slim bar while indexing, its name and its count, and
 /// the failure actions (Retry, Show details) when it was not added. Remove is a small text button, shown on hover.
 /// One folder, on one line: the status icon, the name, the path (middle-truncated, it takes the free width), the file count
@@ -559,6 +573,8 @@ struct FolderRowView: View {
     var count = ""
     /// "15 of 309" while the engine counts a run; empty otherwise.
     var indexLine = ""
+    /// This folder's own progress in the run (Settings only): its count and bar. Nil keeps the run-wide line.
+    var own: FolderProgress? = nil
     @State private var showDetails = false
     @State private var reveal = RevealMachine()
     @State private var revealed = false
@@ -569,11 +585,22 @@ struct FolderRowView: View {
     /// The right side: the run's count while indexing (or the step's text when there is no count), the file count when
     /// indexed. A warning or an error says its text under the row instead.
     private var trailing: String {
-        switch row.tone {
-        case .busy: return indexLine.isEmpty ? row.text : indexLine
+        switch tone {
+        case .busy:
+            if let own {   // a waiting folder says so; an indexing one shows its own count
+                if own.phase == "waiting" { return "Waiting" }
+                return own.total > 0 ? "\(own.done) of \(own.total)" : row.text
+            }
+            return indexLine.isEmpty ? row.text : indexLine
         case .ok: return count
         case .warning, .error: return ""
         }
+    }
+
+    /// The row's tone: with its own progress, a folder is busy until it is done (a warning or an error stays as it is).
+    private var tone: FolderRow.Tone {
+        guard let own, row.tone != .warning, row.tone != .error else { return row.tone }
+        return own.phase == "done" ? .ok : .busy
     }
 
     var body: some View {
@@ -607,8 +634,8 @@ struct FolderRowView: View {
                 .allowsHitTesting(shown)
                 .animation(reduceMotion ? nil : .easeOut(duration: shown ? 0.15 : 0.12), value: shown)
             }
-            if row.tone == .busy {   // only while indexing or adding: an indeterminate slim bar under the row
-                SlimProgressBar(fraction: nil).frame(height: 4).padding(.leading, 24)
+            if tone == .busy {   // only while indexing or adding: a slim bar under the row (indeterminate without a count)
+                SlimProgressBar(fraction: own?.fraction).frame(height: 4).padding(.leading, 24)
             }
             if row.tone == .warning || row.tone == .error {
                 Text(row.text)
@@ -653,7 +680,7 @@ struct FolderRowView: View {
     /// The status: a green check when indexed; amber while indexing (a spinner, or a static half circle with Reduce
     /// Motion); amber for a warning; red for an error.
     @ViewBuilder private var icon: some View {
-        switch row.tone {
+        switch tone {
         case .busy:
             if reduceMotion {
                 Image(systemName: "circle.lefthalf.filled").foregroundStyle(Theme.warning)
@@ -752,6 +779,18 @@ final class OnboardingWindow {
                             rows: [FolderRow(id: paths[0], path: paths[0], text: "10 files", tone: .ok),
                                    FolderRow(id: paths[1], path: paths[1], text: "Indexing 15 of 309 files", tone: .busy),
                                    FolderRow(id: paths[2], path: paths[2], text: "10 files", tone: .ok)])
+            }
+            if variant == "per-folder" {   // three folders with their own progress: done, 60% and 33%, one not started yet
+                let paths = ["/fixture/notes", "/fixture/projects", "/fixture/archive"]
+                let own: [[String: Any]] = [["path": paths[0], "phase": "done", "done": 300, "total": 300],
+                                            ["path": paths[1], "phase": "indexing", "done": 40, "total": 120]]
+                model.apply(EngineStatus(["files": 240, "chunks": 900, "folders": paths, "indexing": true, "model": "m",
+                                          "model_ready": true, "waiting_cloud": 4,
+                                          "folder_stats": [["path": paths[0], "files": 300], ["path": paths[1], "files": 40]],
+                                          "progress": ["phase": "indexing", "done": 340, "total": 420, "folders": own]]),
+                            rows: [FolderRow(id: paths[0], path: paths[0], text: "Indexing…", tone: .busy),
+                                   FolderRow(id: paths[1], path: paths[1], text: "Indexing…", tone: .busy),
+                                   FolderRow(id: paths[2], path: paths[2], text: "Indexing…", tone: .busy)])
             }
             if variant == "three" {   // three folders, all indexed
                 let paths = ["/fixture/notes", "/fixture/projects", "/fixture/archive"]

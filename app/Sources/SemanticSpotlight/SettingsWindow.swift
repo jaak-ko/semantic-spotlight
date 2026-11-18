@@ -334,7 +334,8 @@ struct FolderListBlock: View {
     private var rows: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(model.rows) { row in
-                FolderRowView(row: row, count: model.folderCounts[row.path] ?? "", indexLine: model.indexLine)
+                FolderRowView(row: row, count: model.folderCounts[row.path] ?? "", indexLine: model.indexLine,
+                              own: model.ownProgress[row.path])
                 Hairline()
             }
         }
@@ -358,6 +359,9 @@ struct FolderActionsBlock: View {
                     .layoutProbe("folders.index")
             }
             .frame(maxWidth: .infinity, alignment: .center)
+            if model.waitingCloud > 0 {   // quiet: the files are not a problem, the engine is only waiting for iCloud
+                Text(CloudWaitLine.text(model.waitingCloud)).font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
             if !model.canChooseFolder {
                 Text("Download the language model first.").font(.system(size: 11)).foregroundStyle(Theme.muted)
             }

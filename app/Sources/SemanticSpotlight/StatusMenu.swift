@@ -63,6 +63,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private var progressLabel: NSTextField?
     private var progressBar: NSProgressIndicator?
     private var statsItem: NSMenuItem?
+    /// The quiet iCloud line: present only while the engine waits for iCloud files (its count changes in place).
+    private var cloudItem: NSMenuItem?
 
     /// How many times the menu has been rebuilt (the stress and counter tests read it).
     private(set) var rebuildCount = 0
@@ -108,7 +110,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         self.rows = rows
         updateStats()
         let structure = [message, status == nil ? "no engine" : "engine",
-                         status?.model ?? "", "\(status?.modelReady ?? false)",
+                         status?.model ?? "", "\(status?.modelReady ?? false)", "\((status?.waitingCloud ?? 0) > 0)",
                          rows.map { "\($0.path)|\($0.tone)|\($0.text)" }.joined(separator: "\n")].joined(separator: "|")
         guard structure != lastStructure else { return }
         lastStructure = structure
@@ -149,6 +151,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     /// The counts line, changed in place.
     private func updateStats() {
+        if let s = status, let cloud = cloudItem {
+            cloud.title = StatusMenu.fitted(CloudWaitLine.text(s.waitingCloud))
+        }
         guard let s = status, let line = statsItem else { return }
         line.title = "\(s.files) files · \(s.chunks) chunks · \(s.busy ? "busy" : "idle")"
     }
@@ -255,6 +260,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         progress.isHidden = !(status?.busy ?? false)
         if let s = status, s.busy { fillProgress(s) }
         menu.addItem(progress)
+        cloudItem = nil
+        if let s = status, s.waitingCloud > 0 {
+            let cloud = disabled(CloudWaitLine.text(s.waitingCloud))
+            cloudItem = cloud
+            menu.addItem(cloud)
+        }
         menu.addItem(makeFoldersRow())
         menu.addItem(.separator())
         menu.addItem(action("Reindex Now", #selector(reindex)))

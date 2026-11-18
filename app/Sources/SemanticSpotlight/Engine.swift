@@ -29,6 +29,12 @@ struct EngineStatus {
     let done: Int
     let total: Int
     let hasProgress: Bool  // false on older engines: the `indexing` flag is all there is
+    /// `progress.folders`: each folder's own count while a run is busy, keyed by path. Empty on engines without it.
+    let folderProgress: [String: FolderProgress]
+    /// Whether the engine sent `progress.folders` (an older engine did not, and its rows keep the run-wide numbers).
+    let hasFolderProgress: Bool
+    /// `waiting_cloud`: files in iCloud that the engine is waiting to download (run-level); 0 on older engines.
+    let waitingCloud: Int
 
     init(_ r: [String: Any]) {
         files = r["files"] as? Int ?? 0
@@ -48,6 +54,25 @@ struct EngineStatus {
         phase = progress?["phase"] as? String ?? (indexing ? "indexing" : "idle")
         done = progress?["done"] as? Int ?? 0
         total = progress?["total"] as? Int ?? 0
+        let perFolder = progress?["folders"] as? [[String: Any]]
+        hasFolderProgress = perFolder != nil
+        folderProgress = Dictionary((perFolder ?? []).compactMap { d -> (String, FolderProgress)? in
+            guard let path = d["path"] as? String else { return nil }
+            return (path, FolderProgress(path: path, phase: d["phase"] as? String ?? "indexing",
+                                         done: d["done"] as? Int ?? 0, total: d["total"] as? Int ?? 0))
+        }, uniquingKeysWith: { first, _ in first })
+        waitingCloud = r["waiting_cloud"] as? Int ?? 0
+    }
+
+    /// Each folder's own progress for the Folders tab while a run is busy. A folder the engine has not reached yet is
+    /// "waiting". Empty when the engine sent no per-folder progress, or when nothing is running.
+    var ownFolderProgress: [String: FolderProgress] {
+        guard hasFolderProgress, busy else { return [:] }
+        var out: [String: FolderProgress] = [:]
+        for path in folders {
+            out[path] = folderProgress[path] ?? FolderProgress(path: path, phase: "waiting", done: 0, total: 0)
+        }
+        return out
     }
 
     /// Work is going on: scanning or indexing (or, on an older engine, its `indexing` flag is set).
@@ -61,6 +86,21 @@ struct EngineStatus {
         if determinate { return "Indexing \(done) of \(total) files" }
         if phase == "scanning" { return "Looking for changes…" }
         return busy ? "Indexing…" : ""
+    }
+}
+
+/// One folder's progress in a run, from `progress.folders`. Counts only, the path is the key.
+struct FolderProgress: Equatable {
+    let path: String
+    let phase: String    // "waiting" (not started), "indexing" or "done"
+    let done: Int
+    let total: Int
+
+    /// The bar's fraction: empty while waiting, done/total while indexing, nil when the total is not known.
+    var fraction: Double? {
+        if phase == "waiting" { return 0 }
+        guard total > 0 else { return nil }
+        return min(max(Double(done) / Double(total), 0), 1)
     }
 }
 
