@@ -545,8 +545,10 @@ struct SlimProgressBar: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.edge)
-                Capsule().fill(Theme.accent)
-                    .frame(width: max(6, geo.size.width * min(max(fraction0, 0), 1)))
+                if fraction0 > 0 {   // nothing done yet (a waiting folder) shows the empty track, not a sliver
+                    Capsule().fill(Theme.accent)
+                        .frame(width: max(6, geo.size.width * min(fraction0, 1)))
+                }
             }
         }
         .accessibilityElement()
