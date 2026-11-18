@@ -313,7 +313,8 @@ def test_a_settings_change_that_rebuilds_the_index_is_logged(home, emb, tmp_path
         s.commit()
         _sync(s, emb, [str(folder)], "manual")
     (rb,) = [r for r in _lines(home) if r["event"] == "schema_rebuild"]
-    assert rb["from"] == 4 and rb["to"] == 5 and rb["reason"] == "schema"
+    from semsearch import indexer
+    assert rb["from"] == 4 and rb["to"] == indexer.SCHEMA_VERSION and rb["reason"] == "schema"
 
 
 def test_daemon_index_request_names_its_trigger(home, emb, tmp_path, monkeypatch):

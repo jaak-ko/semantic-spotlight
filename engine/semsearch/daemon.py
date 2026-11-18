@@ -8,7 +8,7 @@ import sys
 import threading
 
 from . import config, events, indexer, modelfiles
-from .store import Store, index_path, read_folder_stats, read_summary
+from .store import Store, index_path, read_folder_stats, read_partial, read_summary
 
 TRIGGERS = ("manual", "watch", "startup")  # what asked for an index run (`index` requests may say which)
 STOP_REASON = "shutdown"  # daemon_stop reason: "signal" when SIGTERM or SIGINT stops the daemon
@@ -70,7 +70,7 @@ class Daemon:
             f, c, folders = read_summary()
             return {"ok": True, "files": f, "chunks": c, "folders": folders,
                     "folder_stats": read_folder_stats(),
-                    "indexing": prog["phase"] != "idle", "progress": prog,
+                    "indexing": prog["phase"] != "idle", "progress": prog, "files_partial": read_partial(),
                     "model": self.cfg["model"],
                     "model_ready": modelfiles.model_ready(self.cfg["model"]), "rss_mb": indexer.rss_mb(),
                     "model_verifying": modelfiles.model_verifying(self.cfg["model"])}

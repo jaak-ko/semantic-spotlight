@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from . import config, events, indexer, modelfiles
-from .store import Store, read_folder_stats, read_summary, index_path
+from .store import Store, read_folder_stats, read_partial, read_summary, index_path
 
 
 WRITES = {"add", "index", "remove", "daemon", "fetch-model"}  # commands that create the engine home
@@ -116,6 +116,7 @@ def cmd_status(a):
     st = {"ok": True, "files": f, "chunks": c, "folders": folders, "model": model,
           "model_ready": modelfiles.model_ready(cfg["model"]), "model_verifying": modelfiles.model_verifying(cfg["model"])}
     st["folder_stats"] = read_folder_stats()
+    st["files_partial"] = read_partial()  # files indexed only partly (max_chunks_per_file)
     live = _daemon_status(config.home())
     if live and live.get("ok") and "progress" in live:
         st["progress"] = live["progress"]  # only when a daemon answered: counts, waiting_cloud, per-folder counts

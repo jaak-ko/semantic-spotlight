@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS folders (path TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL,
-    mtime REAL, size INTEGER, sha256 TEXT);
+    mtime REAL, size INTEGER, sha256 TEXT, partial INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS chunks (
     id INTEGER PRIMARY KEY,
     file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -62,6 +62,14 @@ def read_folder_stats():
         return s.folder_stats()
 
 
+def read_partial() -> int:
+    """Files indexed only partly (the chunk cap): zero when there is no index yet."""
+    if not index_path().exists():
+        return 0
+    with Store() as s:
+        return s.partial_files()
+
+
 def read_summary():
     """(files, chunks, folders) from the index without creating one: zeros when there is no index yet."""
     if not index_path().exists():
@@ -92,13 +100,14 @@ class Store:
             done = self.db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
         except sqlite3.OperationalError:  # a new file has no tables yet
             done = None
-        if done:
-            return
-        self.db.executescript(SCHEMA)
-        cols = [r[1] for r in self.db.execute("PRAGMA table_info(ocr_cache)")]
-        if "path" not in cols:  # OCR caches written before paths were kept
-            self.db.execute("ALTER TABLE ocr_cache ADD COLUMN path TEXT")
-        self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (STORE_MARK,))
+        if not done:
+            self.db.executescript(SCHEMA)
+            cols = [r[1] for r in self.db.execute("PRAGMA table_info(ocr_cache)")]
+            if "path" not in cols:  # OCR caches written before paths were kept
+                self.db.execute("ALTER TABLE ocr_cache ADD COLUMN path TEXT")
+            self.db.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (STORE_MARK,))
+        if "partial" not in [r[1] for r in self.db.execute("PRAGMA table_info(files)")]:
+            self.db.execute("ALTER TABLE files ADD COLUMN partial INTEGER NOT NULL DEFAULT 0")  # indexes before the cap
         self.db.commit()
 
     def _secure(self):
@@ -191,13 +200,14 @@ class Store:
         self.db.execute("UPDATE files SET mtime=?, size=? WHERE id=?", (mtime, size, fid))
         self._dirty = True
 
-    def add_file(self, path, mtime, size, sha, folder=None):
+    def add_file(self, path, mtime, size, sha, folder=None, partial=False):
         """Insert a file row. With `folder`, the insert happens only while that folder is still registered
-        (checked in the same statement), so a removal cannot leave the file behind. Returns None when refused."""
+        (checked in the same statement), so a removal cannot leave the file behind. Returns None when refused.
+        `partial`: only the first chunks of the file are indexed (max_chunks_per_file)."""
         cur = self.db.execute(
-            "INSERT INTO files (path, mtime, size, sha256) SELECT ?,?,?,? "
+            "INSERT INTO files (path, mtime, size, sha256, partial) SELECT ?,?,?,?,? "
             "WHERE ? IS NULL OR EXISTS (SELECT 1 FROM folders WHERE path=?)",
-            (path, mtime, size, sha, folder, folder))
+            (path, mtime, size, sha, int(partial), folder, folder))
         self._dirty = True
         return cur.lastrowid if cur.rowcount else None
 
@@ -239,6 +249,9 @@ class Store:
         """Drop all indexed content (used when the index signature changes)."""
         for fid, _ in self.db.execute("SELECT id, path FROM files").fetchall():
             self.delete_file(fid)
+
+    def partial_files(self) -> int:
+        return self.db.execute("SELECT COUNT(*) FROM files WHERE partial=1").fetchone()[0]
 
     def counts(self):
         f = self.db.execute("SELECT COUNT(*) FROM files").fetchone()[0]

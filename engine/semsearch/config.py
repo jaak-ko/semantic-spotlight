@@ -10,6 +10,7 @@ DEFAULTS = {
     "chunk_tokens": 400,
     "chunk_overlap": 60,
     "max_file_bytes": 1024 * 1024,
+    "max_chunks_per_file": 150,  # ~60k tokens (~240 KB of prose): only the first chunks of a huge or data-like file
     "max_image_bytes": 25 * 1024 * 1024,
     "ocr_languages": ["sv-SE", "en-US"],  # Vision has no Finnish; Swedish covers ä, ö, å
     "extensions": [

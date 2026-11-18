@@ -213,3 +213,10 @@ For support reports: what happened over weeks (indexing trouble, restarts, crash
 - `status` (daemon) returns `progress` as `{"phase", "done", "total", "waiting_cloud", "folders": [{"path", "done", "total", "phase"}]}`. `phase` per folder is `scanning`, `indexing` or `done`; `waiting_cloud` is the number of cloud-only files of the run not yet downloaded. The run-level `phase`, `done` and `total` are unchanged. The folder paths are for the app only: they are never in the event log or diagnostics.
 - `index_end` carries `seconds_scan`, `seconds_read` (reading and decoding, without OCR), `seconds_embed`, `seconds_ocr`, `files_cloud_only`, `files_prefetched`, `slowest_file_seconds` (one file's time, a number only) and `files_per_minute` (files embedded per minute of the run).
 - Adding a folder while a run is going joins the same session: the new folder gets its own entry, and the first folder's unchanged files are not read again.
+
+## Huge and data-like files
+
+- A file is indexed up to `max_chunks_per_file` chunks (default 150, about 60k tokens or 240 KB of prose). The rest of a huge file is not embedded; its first chunks and its file name are. Measured: prose files have a median of 9 chunks and a 90th percentile of 29; a 1 MB CSV, JSON or log dump gives 1,500 to 1,900 chunks, so the cap matters only for those.
+- A file is data-like when, in its first 64 KB, letters and prose punctuation are under 60% of the non-space characters, or a line is longer than 4000 characters (minified JSON, one-line dumps). Data-like files get the same cap and are counted.
+- The cap is never silent: `status` reports `files_partial` (files indexed only partly, persisted per file), and `index_end` in the event log reports `files_truncated` and `files_data_like` for the run.
+- Changing `max_chunks_per_file` takes effect for files indexed after the change; re-index to apply it to files already indexed. Schema 6 (this version) rebuilds the index once.

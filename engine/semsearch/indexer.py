@@ -17,7 +17,7 @@ from .textnorm import keyword_text, name_text
 
 log_debug = logging.getLogger("semsearch")
 TEXTUTIL = "/usr/bin/textutil"  # built into macOS; converts RTF to plain text
-SCHEMA_VERSION = 5  # bump when the stored index layout or keyword text changes (5: separators split words)
+SCHEMA_VERSION = 6  # bump when the stored index layout or keyword text changes (5: separators split words; 6: chunk cap, data-like flag, file name in the embedded text)
 COMMIT_EVERY_FILES = 50   # a crash loses at most this many files, re-indexed next run
 COMMIT_EVERY_SECONDS = 5.0
 SF_DATALESS = 0x40000000  # macOS st_flags: iCloud keeps the content in the cloud; reading the file downloads it
@@ -181,6 +181,21 @@ def _spans(text, emb, cfg):
     return spans
 
 
+_PROSE_PUNCT = set(".,;:!?'\"()-")
+DATA_LIKE_SHARE = 0.6  # letters and prose punctuation among the non-space characters of the first 64 KB
+DATA_LIKE_LINE = 4000  # a line this long (minified JSON, one-line dumps) is data, whatever its share
+
+
+def _data_like(text: str) -> bool:
+    """True for CSV/JSON/log dumps and similar: mostly digits and symbols, or very long lines. Prose is not."""
+    head = text[:65536]
+    nonspace = [c for c in head if not c.isspace()]
+    if not nonspace:
+        return False
+    prose = sum(c.isalpha() or c in _PROSE_PUNCT for c in nonspace)
+    return prose / len(nonspace) < DATA_LIKE_SHARE or max(len(line) for line in head.split("\n")) > DATA_LIKE_LINE
+
+
 def _index_file(ctx, path, folder):
     """Index one file if it is new or changed. Raises OSError for files that cannot be read.
     Nothing is written if `folder` was removed while the file was being embedded."""
@@ -206,6 +221,10 @@ def _index_file(ctx, path, folder):
         _count_and_maybe_commit(ctx)
         return
     spans = _spans(text, emb, cfg)
+    limit = cfg.get("max_chunks_per_file", 150)
+    partial = len(spans) > limit  # a huge or data-like file: its first chunks only, the name still counts
+    spans = spans[:limit]
+    data_like = _data_like(text)
     if spans:
         t0 = time.perf_counter()
         vecs = emb.embed([text[s:e] for s, e in spans], "passage")
@@ -220,13 +239,15 @@ def _index_file(ctx, path, folder):
     fts_texts = [keyword_text(text[s:e], cfg) + ("\n" + name if seq == 0 else "") for seq, (s, e) in enumerate(spans)]
     if row:
         store.delete_file(row[0])
-    fid = store.add_file(path, st.st_mtime, st.st_size, sha, folder)
+    fid = store.add_file(path, st.st_mtime, st.st_size, sha, folder, partial=partial)
     if fid is None:
         return
     for seq, ((s, e), v, ft) in enumerate(zip(spans, vecs, fts_texts)):
         store.add_chunk(fid, seq, s, e, text[s:e], v.tobytes(), ft)
     stats["files_embedded"] += 1
     stats["chunks_embedded"] += len(spans)
+    stats["files_truncated"] += int(partial)
+    stats["files_data_like"] += int(data_like)
     _count_and_maybe_commit(ctx)
 
 
@@ -411,6 +432,7 @@ def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None, t
     errors = st["error_classes"]
     events.write("warn" if errors else "info", "index_end", rss_mb=rss_mb(), peak_rss_mb=st["peak_rss_mb"],
                  files_scanned=st["files_scanned"], files_cloud_only=st["files_cloud_only"],
+                 files_truncated=st["files_truncated"], files_data_like=st["files_data_like"],
                  files_prefetched=st["files_prefetched"], seconds_scan=st["seconds_scan"],
                  seconds_read=st["seconds_read"], seconds_embed=st["seconds_embed"], seconds_ocr=st["seconds_ocr"],
                  slowest_file_seconds=st["slowest_file_seconds"], files_per_minute=st["files_per_minute"],
@@ -499,7 +521,8 @@ def _sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) 
     ctx = {"store": store, "emb": emb, "cfg": cfg, "log": log,
            "stats": {"files_scanned": 0, "files_hashed": 0, "files_embedded": 0,
                      "chunks_embedded": 0, "files_removed": 0, "files_skipped": 0,
-                     "images_ocred": 0, "images_no_text": 0, "images_skipped": 0},
+                     "images_ocred": 0, "images_no_text": 0, "images_skipped": 0,
+                     "files_truncated": 0, "files_data_like": 0},
            "pending": [0, time.time()],  # files since last commit, time of last commit
            "errors": {}, "folder_no": {f: i for i, f in enumerate(store.folders())},
            "timing": {"read": 0.0, "ocr": 0.0, "embed": 0.0}, "slowest": 0.0,
