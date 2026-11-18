@@ -32,8 +32,9 @@ enum Redact {
     }
 
     /// A path starts at the start of the line or after a space, bracket, quote, `=`, `:` or `,`, and ends before
-    /// " (", a closing quote or bracket, ", ", "; ", ": ", or the end of the line. Spaces and non-ASCII text inside are kept.
-    private static let stop = #"(?=\s\(|\s*$|["'`\)\]]|,\s|;\s|:\s)"#
+    /// " (", a closing quote or bracket, ", ", "; ", ": ", a redacted e-mail (" <email>", so a path followed by an address
+    /// in the same text stays apart), or the end of the line. Spaces and non-ASCII text inside are kept.
+    private static let stop = #"(?=\s\(|\s*$|["'`\)\]]|,\s|;\s|:\s|\s<email>)"#
     private static let posixPattern = #"(?:^|(?<=[\s(\[\"'=:,]))/[^\n"'`]*?"# + stop
     private static let windowsPattern = #"[A-Za-z]:\\[^\n"'`]*?"# + stop
 

@@ -64,6 +64,15 @@ make_home() { # make_home <fake home>: config, cloned model, folders with awkwar
 2026-11-14 12:00:09 index settings changed (abc123): rebuilding index
 LOG
     sed -i '' "s|__HOME__|$h|g" "$h/.semsearch/app-daemon.log"
+    # The engine's event log: hostile messages (a path and an e-mail inside a field) that the report must redact.
+    cat > "$h/.semsearch/events.jsonl" <<'EVENTS'
+{"ts":"2026-11-13T09:15:00+02:00","level":"info","event":"daemon_start","run":"3f9a1c2b","version":"0.1.0"}
+{"ts":"2026-11-13T09:16:00+02:00","level":"warn","event":"index_error","run":"3f9a1c2b","class":"OSError","message":"could not read __HOME__/Documents/My Notes/secret plan.txt for someone@example.org"}
+{"ts":"2026-11-13T09:17:00+02:00","level":"info","event":"index_end","run":"3f9a1c2b","files":26,"chunks":130,"seconds":4}
+{"ts":"2026-11-14T08:00:00+02:00","level":"info","event":"daemon_stop","run":"3f9a1c2b"}
+{"ts":"2026-11-14T08:00:05+02:00","level":"warn","event":"search_slow","run":"5b2d7e90","ms":2400,"folders":2}
+EVENTS
+    sed -i '' "s|__HOME__|$h|g" "$h/.semsearch/events.jsonl"
 }
 
 # --- A. Diagnostics from a real engine. ---
@@ -122,7 +131,8 @@ if [ -s "$OUT" ]; then
     MODEL_LINES=(); [ -n "$MODEL_SRC" ] && MODEL_LINES=("Model installed: yes" "folders: 1")
     for want in "Engine: running" ${MODEL_LINES[@]+"${MODEL_LINES[@]}"} "Config model: intfloat/multilingual-e5-small" \
                 "Config ocr_languages: fi-FI, sv-SE, en-US" "Config min_similarity: 0.81" "Login item: " "Hotkey: " \
-                "~/…/<file>.txt" "/…/<file>.pdf" "\"<text>\"" "<email>" "[line omitted: may contain a query or file content]"; do
+                "~/…/<file>.txt" "/…/<file>.pdf" "\"<text>\"" "<email>" "[line omitted: may contain a query or file content]" \
+                "Recent events (" "warn index_error class=OSError" "Activity by day" "starts 1 (unclean 0)" "App log (last"; do
         /usr/bin/grep -qF -- "$want" "$OUT" && pass "shows: $want" || fail "missing: $want"
     done
     if ! /usr/bin/grep -qF -- "Engine: running" "$OUT"; then   # the app's view of the engine did not settle: its own logs

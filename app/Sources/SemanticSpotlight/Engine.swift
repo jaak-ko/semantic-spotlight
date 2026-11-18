@@ -162,8 +162,7 @@ final class EngineManager: FolderEngine {
     private var nextPoll: DispatchWorkItem?  // queue only: the one pending poll
     private var lastBusy = false             // queue only
     private var wantFastPolling = false      // queue only; set by the welcome window
-    private var logFile: FileHandle?           // queue only: the daemon's stderr, kept open so the log can be trimmed
-    private var logChecked = Date.distantPast  // queue only
+    private var nextStart: String?           // queue only: why the next start happens (nil: the first launch)
 
     /// The engine executable. Order: the runtime bundled in the app; for development, the checkout named by
     /// SS_ENGINE_PATH (environment only: nothing is written to the user's home); then a parent of the app bundle.
@@ -188,6 +187,7 @@ final class EngineManager: FolderEngine {
     /// Stops the daemon we started so the supervisor relaunches it (e.g. after a model download).
     func restartEngine() {
         queue.async {
+            self.nextStart = "model ready"
             if let c = self.child, c.isRunning { c.terminate() }
         }
     }
@@ -296,7 +296,6 @@ final class EngineManager: FolderEngine {
     // MARK: - private (queue only)
 
     private func tick() {
-        if Date().timeIntervalSince(logChecked) >= 60 { trimLog() }
         do {
             let status = EngineStatus(try client.request(["cmd": "status"], timeout: 5))
             lastBusy = status.busy
@@ -332,40 +331,33 @@ final class EngineManager: FolderEngine {
         p.arguments = ["daemon"]
         p.currentDirectoryURL = URL(fileURLWithPath: bin).deletingLastPathComponent()
         p.standardOutput = FileHandle.nullDevice
-        p.standardError = logHandle()
+        let pipe = Pipe()   // the engine's stderr goes to the app's log, with a time on each line
+        p.standardError = pipe
+        pipe.fileHandleForReading.readabilityHandler = { h in
+            let data = h.availableData
+            if data.isEmpty {
+                h.readabilityHandler = nil
+                AppLog.engineEnded()
+            } else {
+                AppLog.engineOutput(data)
+            }
+        }
+        p.terminationHandler = { [weak self] proc in
+            let how = proc.terminationReason == .uncaughtSignal ? "signal \(proc.terminationStatus)" : "exit code \(proc.terminationStatus)"
+            self?.queue.async {
+                AppLog.app("app: engine exited (\(how))")
+                if self?.nextStart == nil { self?.nextStart = "restart after \(how)" }
+            }
+        }
         do {
             try p.run()
             child = p
+            AppLog.app("app: starting engine (reason: \(nextStart ?? "launch"))")
+            nextStart = nil
             return "Starting engine…"
         } catch {
             return "Engine failed to start: \(error.localizedDescription)"
         }
-    }
-
-    /// The daemon's stderr log, opened for appending (mode 0600; the folder 0700). The daemon writes through this same
-    /// descriptor, so trimming it in place keeps its writes landing in the file.
-    private func logHandle() -> FileHandle? {
-        let path = SemPaths.log
-        let fm = FileManager.default
-        let dir = (path as NSString).deletingLastPathComponent
-        if !fm.fileExists(atPath: dir) {
-            try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        }
-        let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
-        guard fd >= 0 else { return nil }
-        fchmod(fd, 0o600)   // open keeps the mode of a file that already existed
-        logFile = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        trimLog()
-        return logFile
-    }
-
-    /// Diagnostic output only: the log starts over once it grows past 1 MB. Checked when the daemon starts and at most
-    /// once a minute while it runs (from the status poll).
-    private func trimLog() {
-        logChecked = Date()
-        guard let fd = logFile?.fileDescriptor else { return }
-        var st = stat()
-        if fstat(fd, &st) == 0, st.st_size > 1_000_000 { ftruncate(fd, 0) }
     }
 
     private func publish(_ status: EngineStatus?, _ message: String) {

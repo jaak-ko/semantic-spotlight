@@ -33,6 +33,9 @@ expect("skip /Users/other/x/y/z: gone", "skip /…/<folder>: gone")
 
 // E-mail addresses.
 expect("mail someone@example.org failed", "mail <email> failed")
+// An event's message field (the diagnostics report redacts every event line again): a path and an e-mail, both redacted.
+expect("2026-11-10 12:00 warn index_error message=could not read /Users/testuser/Documents/a/b.txt for someone@example.org",
+       "2026-11-10 12:00 warn index_error message=could not read ~/…/<folder> <email>")
 expect("sent to a.b+c@example.co.uk now", "sent to <email> now")
 
 // A path inside quotes on a warning line: the whole quoted text goes.

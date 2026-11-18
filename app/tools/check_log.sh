@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# The daemon log stays under 1 MB. Run A (fresh home): the folder is created 0700 and the file 0600; the log grown past
-# the cap while the daemon runs is trimmed by the status poll (at most once a minute). Run B: a 2 MB log is trimmed
-# when the daemon starts. Fake HOMEs only; the dev engine (.venv) runs under them.
+# The app's own log (app-daemon.log) is kept across starts: each line has a local time; the app's lines say when the engine
+# starts and why, and each exit with its code or signal. It rotates at 512 KB and keeps four files, all 0600.
+# Run A (fresh home): the folder is 0700, the file 0600, the first line is the launch; a killed engine is recorded as
+# an exit, and the restart says why. Run B: a 2 MB log from an earlier run is rotated to .1 when the app starts.
+# Fake HOMEs only; the dev engine (.venv) runs under them.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 . tools/testlib.sh
@@ -33,25 +35,35 @@ wait_socket() { # wait_socket <fake home>: until the daemon listens (it starts a
     return 1
 }
 
-# Run A: fresh home, log grown past the cap while the daemon runs.
+# Run A: fresh home. The folder and file modes, the launch line, then an engine killed by a signal is recorded and restarted.
 A="$W/fresh"; mkdir -p "$A"
-start_app "$A"
+start_app "$A"; APP_PID=$!
 wait_socket "$A" || fail "run A: the daemon never came up"
 LOG="$A/.semsearch/app-daemon.log"
 [ "$(mode "$A/.semsearch")" = 700 ] && pass "a new log folder is 0700" || fail "log folder mode $(mode "$A/.semsearch")"
 [ "$(mode "$LOG")" = 600 ] && pass "the log file is 0600" || fail "log file mode $(mode "$LOG")"
-head -c 1500000 /dev/zero | tr '\0' 'y' >> "$LOG"   # the daemon keeps writing; here the log jumps past the cap
-for _ in $(seq 45); do [ "$(size "$LOG")" -lt 1000000 ] && break; sleep 2; done   # the check runs at most once a minute
-[ "$(size "$LOG")" -lt 1000000 ] && pass "a log past 1 MB is trimmed while the daemon runs" || fail "log still $(size "$LOG") bytes"
-[ "$(mode "$LOG")" = 600 ] && pass "the trimmed log keeps mode 0600" || fail "mode after trim $(mode "$LOG")"
+/usr/bin/grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} app: starting engine \(reason: launch\)$' "$LOG" \
+    && pass "the first line is the launch, with a local time" || fail "no launch line: $(head -2 "$LOG")"
+ENG="$(pgrep -P "$APP_PID" | head -1 || true)"
+if [ -n "$ENG" ]; then
+    kill -9 "$ENG" 2>/dev/null
+    for _ in $(seq 40); do /usr/bin/grep -q "app: engine exited (signal 9)" "$LOG" && break; sleep 0.5; done
+    /usr/bin/grep -qE 'app: engine exited \(signal 9\)$' "$LOG" && pass "a killed engine is recorded with its signal" || fail "no exit line"
+    for _ in $(seq 40); do /usr/bin/grep -q "reason: restart after signal 9" "$LOG" && break; sleep 0.5; done
+    /usr/bin/grep -q "app: starting engine (reason: restart after signal 9)" "$LOG" && pass "the restart says why" || fail "no restart reason"
+else
+    fail "run A: no engine process to kill"
+fi
 
-# Run B: a 2 MB log from an earlier run is trimmed when the daemon starts, and kept (not deleted).
+# Run B: a 2 MB log from an earlier run is rotated to .1 when the app starts; the new log is small and 0600.
 B="$W/big"; mkdir -p "$B/.semsearch"
 head -c 2000000 /dev/zero | tr '\0' 'x' > "$B/.semsearch/app-daemon.log"
 start_app "$B"
 wait_socket "$B" || fail "run B: the daemon never came up"
-[ -f "$B/.semsearch/app-daemon.log" ] && [ "$(size "$B/.semsearch/app-daemon.log")" -lt 1000000 ] \
-    && pass "a 2 MB log is trimmed when the daemon starts" || fail "run B: log $(size "$B/.semsearch/app-daemon.log") bytes"
+[ -f "$B/.semsearch/app-daemon.log.1" ] && [ "$(size "$B/.semsearch/app-daemon.log.1")" -ge 2000000 ] \
+    && pass "the 2 MB log is kept as .1" || fail "run B: no rotated copy"
+[ "$(size "$B/.semsearch/app-daemon.log")" -lt 524288 ] && [ "$(mode "$B/.semsearch/app-daemon.log")" = 600 ] \
+    && pass "the new log is under 512 KB and 0600" || fail "run B: new log $(size "$B/.semsearch/app-daemon.log") bytes, mode $(mode "$B/.semsearch/app-daemon.log")"
 
 if [ "$FAILS" -eq 0 ]; then echo; echo "log check: PASS"; else echo; echo "log check: $FAILS failure(s)"; fi
 exit "$FAILS"

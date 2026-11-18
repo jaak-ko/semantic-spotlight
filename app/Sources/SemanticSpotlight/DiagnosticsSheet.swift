@@ -25,7 +25,7 @@ final class DiagnosticsModel: ObservableObject {
         snapshotHadStatus = input.status != nil
         DispatchQueue.global(qos: .userInitiated).async {
             input.config = Diagnostics.readConfig(home: input.home)
-            input.logLines = Diagnostics.logTail(path: input.home + "/.semsearch/app-daemon.log")
+            Diagnostics.readLogs(into: &input)
             let text = Diagnostics.render(input)
             DispatchQueue.main.async {
                 self.text = text

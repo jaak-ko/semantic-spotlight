@@ -20,8 +20,17 @@ enum Diagnostics {
         var config: [String: String]
         var loginItem: Bool
         var hotkey: String
-        var logLines: [String]
         var home: String
+        /// The event log: its recent lines, how many older events are not shown, and the activity by day. `hasEventLog`
+        /// is false for an engine that has no event log yet.
+        var hasEventLog = false
+        var events: [String] = []
+        var eventsOmitted = 0          // routine events not shown
+        var problemsOmitted = 0        // older warnings, errors and unclean starts not shown
+        var activity: [String] = []
+        /// The app's log: its last lines, and how many older lines are not shown.
+        var appLog: [String] = []
+        var appLogOmitted = 0
     }
 
     static func render(_ d: Input) -> String {
@@ -49,9 +58,20 @@ enum Diagnostics {
             "Login item: \(d.loginItem ? "on" : "off")",
             "Hotkey: \(d.hotkey)",
             "",
-            "Engine log, last \(d.logLines.count) lines (redacted):",
         ]
-        lines += d.logLines
+        if d.hasEventLog {
+            lines.append("Recent events (\(d.events.count) shown, problems first, redacted):")
+            lines += d.events
+            if d.problemsOmitted > 0 { lines.append("… \(d.problemsOmitted) older problem events not shown") }
+            if d.eventsOmitted > 0 { lines.append("… \(d.eventsOmitted) routine events not shown") }
+        } else {
+            lines.append("Recent events: No event log yet")
+        }
+        lines += ["", "Activity by day (last 14 days with data):"]
+        lines += d.activity.isEmpty ? ["No activity recorded"] : d.activity
+        lines += ["", "App log (last \(d.appLog.count) lines, redacted):"]
+        lines += d.appLog
+        if d.appLogOmitted > 0 { lines.append("… \(d.appLogOmitted) older lines not shown") }
         return Redact.text(lines.joined(separator: "\n"), home: d.home) + "\n"
     }
 
@@ -112,7 +132,6 @@ enum Diagnostics {
               config: [:],
               loginItem: SMAppService.mainApp.status == .enabled,
               hotkey: Prefs.label,
-              logLines: [],
               home: SemPaths.home)
     }
 
@@ -125,6 +144,40 @@ enum Diagnostics {
         if let v = obj["ocr_languages"] as? [String] { out["ocr_languages"] = v.joined(separator: ", ") }
         if let v = obj["min_similarity"] as? NSNumber { out["min_similarity"] = "\(v.doubleValue)" }
         return out
+    }
+
+    /// Read on a background thread: the event log (recent events, activity by day) and the app's log (its last 30 lines).
+    /// Each part is cut to a byte budget, so the report stays short; the newest lines are the ones kept.
+    static func readLogs(into d: inout Input) {
+        let events = EventLog.load(home: d.home)
+        d.hasEventLog = events != nil
+        if let events {
+            let recent = EventLog.recent(events, home: d.home)
+            d.events = recent.lines
+            d.eventsOmitted = recent.routineOmitted
+            d.problemsOmitted = recent.problemsOmitted
+            d.activity = EventLog.activity(events)
+        }
+        // Each line is redacted first, then cut to 90 characters (so a cut never leaves half a path unredacted), and the
+        // last 30 lines fit the 2.5 KB budget in the usual case.
+        let tail = logTail(path: d.home + "/.semsearch/app-daemon.log", limit: 30)
+            .map { Redact.line($0, home: d.home) }
+            .map { $0.count > 90 ? String($0.prefix(90)) + "…" : $0 }
+        let app = newest(tail, bytes: 2500)
+        d.appLog = app.lines
+        d.appLogOmitted = app.omitted
+    }
+
+    /// The newest of `lines` that fit in `bytes` (oldest first), and how many older lines were left out.
+    static func newest(_ lines: [String], bytes: Int) -> (lines: [String], omitted: Int) {
+        var kept: [String] = []
+        var used = 0
+        for line in lines.reversed() {
+            used += line.utf8.count + 1
+            if used > bytes { break }
+            kept.append(line)
+        }
+        return (kept.reversed(), lines.count - kept.count)
     }
 
     static func logTail(path: String, limit: Int = 200) -> [String] {

@@ -311,6 +311,7 @@ enum ProgressTests {
         failures += AppLogoTests.run()
         failures += ButtonRowLayoutTests.run()
         failures += FolderPopoverSettingsTests.run()
+        failures += DiagnosticsLogTests.run()
         return failures
     }
 }
