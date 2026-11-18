@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import config, indexer, modelfiles
+from . import config, events, indexer, modelfiles
 from .store import Store, read_folder_stats, read_summary, index_path
 
 
@@ -40,18 +40,19 @@ def cmd_add(a):
     with Store() as s:
         s.add_folder(folder)
         s.commit()
-    return _index(cfg, [folder])
+        events.write("info", "folder_added", folders=len(s.folders()))
+    return _index(cfg, [folder], trigger="add")
 
 
 def cmd_index(a):
     return _index(config.load(), None)
 
 
-def _index(cfg, folders):
+def _index(cfg, folders, trigger="manual"):
     emb = _embedder(cfg)
     with Store() as s:
         t0 = time.time()
-        st = indexer.sync(s, emb, cfg, folders, log=lambda m: print(m, file=sys.stderr))
+        st = indexer.sync(s, emb, cfg, folders, log=lambda m: print(m, file=sys.stderr), trigger=trigger)
         f, c = s.counts()
     secs = time.time() - t0
     rate = (f"{st['files_embedded'] / st['seconds']:.1f} files/s, "
@@ -145,8 +146,19 @@ def _stop_daemon(root):
         time.sleep(0.1)
 
 
-ENGINE_FILES = {"config.json", "daemon.sock", "daemon.lock", "models", "hf", "torch", "st", "cache", "tmp",
-                "app-daemon.log"}  # what the engine creates in its home; index.db* is matched by prefix
+ENGINE_FILES = {"config.json", "daemon.sock", "daemon.lock", "events.lock", "daemon.running", "models", "hf", "torch",
+                "st", "cache", "tmp", "app-daemon.log"}  # what the engine creates in its home; index.db* and events.jsonl* by prefix
+
+
+def cmd_log(a):
+    for rec in events.read(days=a.days):
+        if a.json:
+            print(json.dumps(rec, ensure_ascii=False))
+        else:
+            head = " ".join(str(rec.get(k, "")) for k in ("ts", "level", "event"))
+            rest = " ".join(f"{k}={v}" for k, v in rec.items() if k not in ("ts", "level", "event"))
+            print(f"{head} {rest}".rstrip())
+    return 0
 
 
 def cmd_uninstall(a):
@@ -158,7 +170,7 @@ def cmd_uninstall(a):
         print(f"nothing to remove: {root} does not exist")
         return 0
     foreign = sorted(p.name for p in root.iterdir()
-                     if p.name not in ENGINE_FILES and not p.name.startswith("index.db"))
+                     if p.name not in ENGINE_FILES and not p.name.startswith(("index.db", "events.jsonl")))
     if foreign:  # a folder that is not only ours is never removed
         print(f"refusing to remove {root}: it also holds files the engine did not create: {', '.join(foreign)}",
               file=sys.stderr)
@@ -180,6 +192,7 @@ def cmd_remove(a):
     folder = os.path.abspath(os.path.expanduser(a.folder))
     with Store() as s:
         s.remove_folder(folder)
+        events.write("info", "folder_removed", folders=len(s.folders()))
     print(f"removed {folder}")
     return 0
 
@@ -221,6 +234,11 @@ def main(argv=None):
     x.add_argument("--model", default=None)
     x.set_defaults(fn=cmd_fetch_model)
 
+    x = sub.add_parser("log", help="print the retained event log (sanitized, newest last)")
+    x.add_argument("--days", type=float, help="only events from the last N days")
+    x.add_argument("--json", action="store_true")
+    x.set_defaults(fn=cmd_log)
+
     x = sub.add_parser("uninstall", help="remove everything the engine created under its home")
     x.add_argument("--yes", action="store_true", help="remove it (default: list it)")
     x.set_defaults(fn=cmd_uninstall)
@@ -228,6 +246,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if a.cmd in WRITES:
         config.ensure_home()
+        events.enable()
     _caches_under_home()
     # Everything except fetch-model runs fully offline.
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"

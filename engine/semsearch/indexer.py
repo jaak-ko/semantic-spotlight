@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -8,7 +9,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import chunk, config, modelfiles, ocr
+from . import chunk, config, events, modelfiles, ocr
 from .store import Store
 from .textnorm import keyword_text, name_text
 
@@ -256,6 +257,7 @@ def _scan_folder(ctx, folder):
             row = store.file_row(path)
         except OSError as e:  # dangling symlink, permission denied, vanished mid-run
             items.append(("skip", path, e.strerror or type(e).__name__))
+            _error(ctx, e, ctx["folder_no"].get(folder, -1))
             continue
         if row and row[1] == st.st_mtime and row[2] == st.st_size:
             continue  # unchanged: nothing to do
@@ -277,6 +279,7 @@ def _process(ctx, item):
         except OSError as e:
             log(f"skip {item[1]}: {e.strerror or type(e).__name__}")
             stats["files_skipped"] += 1  # an existing row is left as it was
+            _error(ctx, e, ctx["folder_no"].get(item[2], -1))
     elif item[0] == "skip":
         log(f"skip {item[1]}: {item[2]}")
         stats["files_skipped"] += 1
@@ -285,12 +288,19 @@ def _process(ctx, item):
         stats["files_removed"] += 1
 
 
+def _schema(sig) -> int:
+    m = re.search(r"schema=(\d+)", sig or "")
+    return int(m.group(1)) if m else 0
+
+
 def _check_signature(store, emb, cfg, log):
     sig = index_signature(cfg, emb.name)
     old = store.get_meta("sig")
     if old != sig:  # also rebuilds indexes written before signatures existed
         if store.counts()[0]:  # a new, empty index has nothing to rebuild
             log(f"index settings changed ({sig}): rebuilding index")
+            events.write("info", "schema_rebuild", reason="schema" if _schema(old) != SCHEMA_VERSION else "settings",
+                         **{"from": _schema(old), "to": SCHEMA_VERSION})
         store.reset()
     store.set_meta("sig", sig)
     store.set_meta("model", emb.name)
@@ -310,7 +320,35 @@ def _once(log):
     return inner
 
 
-def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) -> dict:
+ERROR_EVENTS = 50  # index_error events per run; later failures are only counted (index_end has the count)
+
+
+def _error(ctx, e, folder_index):
+    cls = type(e).__name__
+    ctx["errors"][cls] = ctx["errors"].get(cls, 0) + 1
+    if sum(ctx["errors"].values()) <= ERROR_EVENTS:
+        events.write("warn", "index_error", **{"class": cls, "message": e.strerror or str(e),
+                                              "folder_index": folder_index})
+
+
+def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None, trigger="manual") -> dict:
+    """Index the given folders (default: all registered) with the event log: index_start, then index_end, or
+    index_error if the run itself fails."""
+    events.write("info", "index_start", trigger=trigger, folders=len(folders or store.folders()))
+    try:
+        st = _sync(store, emb, cfg, folders, log, progress)
+    except Exception as e:
+        events.write("error", "index_error", **{"class": type(e).__name__, "message": str(e), "folder_index": -1})
+        raise
+    errors = st["error_classes"]
+    events.write("warn" if errors else "info", "index_end", files_scanned=st["files_scanned"],
+                 files_embedded=st["files_embedded"], files_removed=st["files_removed"], chunks=store.counts()[1],
+                 seconds=st["seconds"], errors=sum(errors.values()),
+                 top_errors=[{"class": c, "count": n} for c, n in sorted(errors.items(), key=lambda kv: -kv[1])[:5]])
+    return st
+
+
+def _sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) -> dict:
     """Bring the index up to date with the given folders (default: all registered).
     Scans every folder first (the total for `progress` is known before any file is read), then processes."""
     progress = progress or Progress()
@@ -321,6 +359,7 @@ def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) -
                      "chunks_embedded": 0, "files_removed": 0, "files_skipped": 0,
                      "images_ocred": 0, "images_no_text": 0, "images_skipped": 0},
            "pending": [0, time.time()],  # files since last commit, time of last commit
+           "errors": {}, "folder_no": {f: i for i, f in enumerate(store.folders())},
            "helper": {"resolved": False, "path": None}}
     t0 = time.time()
     progress.begin_scan()
@@ -342,4 +381,5 @@ def sync(store: Store, emb, cfg: dict, folders=None, log=print, progress=None) -
         store.prune_ocr(store.folders())
     _maybe_commit(ctx, force=True)
     ctx["stats"]["seconds"] = round(time.time() - t0, 2)
+    ctx["stats"]["error_classes"] = dict(ctx["errors"])
     return ctx["stats"]

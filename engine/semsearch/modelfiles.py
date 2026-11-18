@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import config
+from . import config, events
 
 DEFAULT_MODEL = "intfloat/multilingual-e5-small"
 # Pinned commit of the default model: the snapshot directory name of the tested install.
@@ -161,6 +161,11 @@ def verify_install(name: str = DEFAULT_MODEL, force: bool = False) -> bool:
                 except OSError:
                     pass  # the result still holds for this process; the next start checks again
             _verdicts[name] = ok
+            if ok:
+                events.write("info", "model_verified", source="check")
+            else:
+                events.write("warn", "model_missing",
+                             reason="unverified" if (model_dir(name) / "snapshots" / REV).is_dir() else "absent")
         return _verdicts[name] is True and _files_linked(name)
 
 
@@ -306,6 +311,7 @@ def fetch(name: str, emit) -> None:
             if _sha256(p) != lfs.sha256:
                 raise RuntimeError(f"sha256 mismatch: {rfile}")
     _write_marker(name)  # the marker is the last step: model_ready() needs it
+    events.write("info", "model_verified", source="fetch")
     emit({"event": "progress", "done": total, "total": total, "speed": 0})
     if not model_ready(name):
         raise RuntimeError("model files incomplete after download")

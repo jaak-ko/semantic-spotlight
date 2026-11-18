@@ -7,8 +7,11 @@ import socketserver
 import sys
 import threading
 
-from . import config, indexer, modelfiles
+from . import config, events, indexer, modelfiles
 from .store import Store, index_path, read_folder_stats, read_summary
+
+TRIGGERS = ("manual", "watch", "startup")  # what asked for an index run (`index` requests may say which)
+STOP_REASON = "shutdown"  # daemon_stop reason: "signal" when SIGTERM or SIGINT stops the daemon
 
 
 MAX_REQUEST = 1 << 20  # bytes per request line; a longer line is rejected and the connection closed
@@ -74,7 +77,7 @@ class Daemon:
         if cmd == "index":
             modelfiles.verify_install(self.cfg["model"], force=True)  # an unmarked install is checked now, not cached
             self.embedder()
-            self._start_index(None)
+            self._start_index(None, req.get("trigger") if req.get("trigger") in TRIGGERS else "manual")
             return {"ok": True}
         if cmd == "add":
             path = os.path.abspath(os.path.expanduser(str(req["path"])))
@@ -85,7 +88,8 @@ class Daemon:
             with Store() as s:
                 s.add_folder(path)
                 s.commit()
-            self._start_index([path])
+                events.write("info", "folder_added", folders=len(s.folders()))
+            self._start_index([path], "add")
             return {"ok": True}
         if cmd == "shutdown":
             threading.Thread(target=SERVER.shutdown, daemon=True).start()  # serve_forever must stop off its own thread
@@ -94,14 +98,15 @@ class Daemon:
             path = os.path.abspath(os.path.expanduser(str(req["path"])))
             with Store() as s:
                 s.remove_folder(path)
+                events.write("info", "folder_removed", folders=len(s.folders()))
             return {"ok": True}
         return {"ok": False, "error": f"unknown cmd: {cmd!r}"}
 
-    def _start_index(self, folders):
+    def _start_index(self, folders, trigger="manual"):
         """Queue an index request. One worker thread drains the queue, so requests that arrive
         while it runs are never lost and two workers never run at once."""
         with self._lock:
-            self._pending.append(folders)
+            self._pending.append((folders, trigger))
             if self._running:
                 return  # the running worker picks this up before it exits
             self._running = True
@@ -116,12 +121,12 @@ class Daemon:
                     self.progress.end_session()
                     return
                 batch, self._pending = self._pending, []
-            for folders in batch:
+            for folders, trigger in batch:
                 try:
                     with Store() as s:
                         indexer.sync(s, self.embedder(), self.cfg, folders,
                                      log=lambda m: print(m, file=sys.stderr, flush=True),
-                                     progress=self.progress)
+                                     progress=self.progress, trigger=trigger)
                 except Exception as e:  # keep the daemon alive; report on stderr
                     print(f"index failed: {e}", file=sys.stderr, flush=True)
                     self.progress.abandon()  # this folder's unrun items leave the total; the next folder still runs
@@ -173,6 +178,12 @@ def _alive(path):
 LOCK_FD = None  # held for the process lifetime; the OS releases the lock when the daemon exits
 
 
+def _signal_stop(server):
+    global STOP_REASON
+    STOP_REASON = "signal"
+    threading.Thread(target=server.shutdown).start()  # shutdown() must run off the serving thread
+
+
 def run():
     global DAEMON, SERVER, LOCK_FD
     config.ensure_home()  # the socket lives in the home
@@ -193,7 +204,12 @@ def run():
             return 1
         os.unlink(path)  # stale socket from a crashed run
 
+    previous_clean = events.mark_running()  # False: the last daemon never reached daemon_stop
+    events.install_excepthooks()
+    events.prune()
     DAEMON = Daemon()
+    events.write("info", "daemon_start", pid=os.getpid(), version=events.engine_version(),
+                 model_ready=modelfiles.model_ready(DAEMON.cfg["model"]), previous_run_clean=previous_clean)
     modelfiles.start_verify(DAEMON.cfg["model"])  # an unmarked install is checked off the start path
     if not modelfiles.model_verifying(DAEMON.cfg["model"]):
         try:
@@ -208,8 +224,8 @@ def run():
     SERVER = server
 
     # shutdown() must run off the serving thread, so the signal handler spawns it.
-    signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown).start())
-    signal.signal(signal.SIGINT, lambda *_: threading.Thread(target=server.shutdown).start())
+    signal.signal(signal.SIGTERM, lambda *_: _signal_stop(server))
+    signal.signal(signal.SIGINT, lambda *_: _signal_stop(server))
     print(f"semsearch daemon listening on {path}", file=sys.stderr, flush=True)
     try:
         server.serve_forever()
@@ -217,4 +233,6 @@ def run():
         server.server_close()
         if os.path.exists(path):
             os.unlink(path)
+    events.write("info", "daemon_stop", reason=STOP_REASON)  # an exception above leaves the marker: unclean
+    events.clear_running()
     return 0

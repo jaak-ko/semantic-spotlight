@@ -12,6 +12,7 @@ Index: `~/.semsearch/index.db`. Models: `~/.semsearch/models`. Socket: `~/.semse
 | `semsearch add <folder>` / `index` / `remove <folder>` | no | exit 3 with a message if the model is not installed |
 | `semsearch query "<text>" [-n N] [--json]` | no | exit 3 with a message if the model is not installed |
 | `semsearch daemon` | no | model loaded once; starts without a model and reports `model_ready: false` |
+| `semsearch log [--days N] [--json]` | no | prints the retained event log (below), oldest first; nothing else. Creates nothing |
 | `semsearch uninstall [--yes]` | no | lists, then removes, the whole engine home (`~/.semsearch`); stops a running daemon first. Refuses (exit 1, names the files) when the home holds anything the engine did not create |
 
 Every command except `fetch-model` sets `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` and `HF_HUB_DISABLE_TELEMETRY=1`.
@@ -180,3 +181,21 @@ An install is ready when its `verified` marker holds the pinned revision and its
 - The daemon checks it in a worker thread at start, and `model_ready` also starts that check lazily on its first question. Until the check finishes, status reports `model_ready: false` and `model_verifying: true`. The app should show "checking", not the download button, while `model_verifying` is true.
 - `index` and `add` re-check an install that is not marked (synchronously, so the reply waits for it). A marked install returns at once.
 - The check never touches the network.
+
+## Event log (`events.jsonl`)
+
+For support reports: what happened over weeks (indexing trouble, restarts, crashes). File `~/.semsearch/events.jsonl` (mode 0600, UTF-8), one JSON object per line:
+
+```
+{"ts":"2026-11-18T13:11:05+02:00","level":"info","event":"index_start","run":"3f9a0c21","trigger":"manual","folders":2}
+```
+
+- `ts` is ISO 8601 with the local offset. `level` is `info`, `warn` or `error`. `run` is 8 hex digits, one per process (daemon or command), so one daemon's lines can be told apart from the next one's.
+- Events: `daemon_start` (pid, version, model_ready, previous_run_clean), `daemon_stop` (reason: `shutdown` or `signal`), `model_verified` (source: `check` or `fetch`), `model_missing` (reason: `absent` or `unverified`), `index_start` (trigger: `manual`, `watch`, `startup` or `add`; folders: count), `index_end` (files_scanned, files_embedded, files_removed, chunks, seconds, errors: count, top_errors: `[{class, count}]`), `index_error` (class, message, folder_index: the folder's position in the registered list, -1 for all folders or none), `schema_rebuild` (from, to, reason: `schema` or `settings`), `folder_added` / `folder_removed` (folders: count after), `search_slow` (ms, query_chars; only over 1000 ms), `uncaught_exception` (class, message, stack: function names only).
+- A `watch` trigger is sent when an `index` request carries `"trigger": "watch"` (any other value counts as `manual`). Nothing sends `startup` yet.
+- Privacy, enforced in the writer: no file names, paths, folder names, queries, contents or e-mail addresses. Every string is sanitized: e-mail addresses become `<email>`, path-like tokens (anything with a slash, `~/`, `C:\`) become `<path>`, quoted names become `<text>`, and text is cut to 200 characters. Messages from the OS use the error text without the path. Only counts and error classes are kept.
+- `index_error` is logged for at most 50 files per run; `index_end` carries the full count.
+- Rotation at 512 KB: `events.jsonl.1` … `.7` are kept (8 files). Rotated files not written for 60 days are deleted at each daemon start and at each rotation.
+- Writers are serialized by `events.lock` (one `flock` per line, so the daemon and a CLI command can both write). A write never raises into the caller; a failed write is dropped.
+- A daemon that ends without `daemon_stop` leaves `daemon.running` behind. The next start logs `previous_run_clean: false`. A daemon that ends in an uncaught exception is reported by `uncaught_exception` and stays unclean.
+- Only the write commands and the daemon log (`status`, `query` and `log` never write). `semsearch uninstall` removes all of these files.

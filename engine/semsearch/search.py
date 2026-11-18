@@ -1,10 +1,11 @@
 import os
 import re
+import time
 from collections import defaultdict
 
 import numpy as np
 
-from . import config
+from . import config, events
 from .textnorm import stem, tokens
 
 RRF_K = 60
@@ -87,7 +88,20 @@ def _sim(ids, sims, cid):
     return float(sims[pos]) if pos < len(ids) and ids[pos] == cid else 0.0
 
 
+SLOW_MS = 1000  # a query slower than this is logged as search_slow
+
+
 def query(store, emb, text: str, n: int = 10, cfg=None, folders=None) -> list:
+    """Runs _query and logs it when it took longer than SLOW_MS (no text is logged: only its length)."""
+    t0 = time.perf_counter()
+    res = _query(store, emb, text, n, cfg, folders)
+    ms = (time.perf_counter() - t0) * 1000
+    if ms > SLOW_MS:
+        events.write("warn", "search_slow", ms=round(ms), query_chars=len(text))
+    return res
+
+
+def _query(store, emb, text: str, n: int = 10, cfg=None, folders=None) -> list:
     """Hybrid search: vector cosine, BM25 (over Finnish stems) fused by reciprocal rank, aggregated
     per file. `score` is 1.0 when a chunk ranks first in both lists. `similarity` is the raw cosine
     of the file's best chunk. Chunks below `min_similarity` are dropped unless they are keyword hits

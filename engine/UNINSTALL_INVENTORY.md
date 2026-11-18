@@ -23,6 +23,7 @@ Both runs produced the same set. `uninstall` removes all of it.
 | `daemon.sock` | `daemon.py` | Mode 0600. Present only while the daemon runs; removed on clean exit. |
 | `daemon.lock` | `daemon.py` | Empty, mode 0600. Held with `flock` by the running daemon; left in place after exit, the lock is released by the OS. |
 | `models/models--intfloat--multilingual-e5-small/` | `fetch-model` (`modelfiles.py`), `huggingface_hub`, `sentence-transformers` | The model, about 470 MB: `blobs/`, `snapshots/<pinned commit>/`, `refs/`, and `.no_exist/<commit>` markers. |
+| `events.jsonl` (+ `.1` … `.7`), `events.lock`, `daemon.running` | `events.py`, `daemon.py`, `indexer.py`, `modelfiles.py`, `search.py`, `cli.py` (the event log, see README) | Mode 0600. `events.jsonl` is rotated at 512 KB (8 files, 60 days). `events.lock` is empty. `daemon.running` is present while a daemon runs (removed on clean stop). |
 | `models/.locks/` | `huggingface_hub` during `fetch-model` and model loads | Lock files only. |
 | `models/models--BAAI--bge-m3/` | Only if you point `model` at bge-m3 (developer setting) | Not created by default. |
 | `hf/` | `cli._caches_under_home()` sets `HF_HOME` here | Empty in the runs. Anything the Hugging Face libraries cache lands here. |
